@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.nexus</groupId>
+    <artifactId>nexus-erp-x</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+    <name>NexusERP-X</name>
+    <modules>
+        <module>nexus-common</module>
+        <module>nexus-gateway</module>
+        <module>nexus-auth</module>
+        <module>nexus-system</module>
+        <module>nexus-erp</module>
+        <module>nexus-oa</module>
+        <module>nexus-wage</module>
+    </modules>
+    <properties>
+        <java.version>17</java.version>
+        <!-- 与 maven.compiler.release 一致，供 IDE/旧插件读取，避免与 JDK 17 不一致 -->
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
+        <spring.boot.version>3.3.4</spring.boot.version>
+        <spring.cloud.version>2023.0.3</spring.cloud.version>
+        <spring.cloud.alibaba.version>2023.0.1.2</spring.cloud.alibaba.version>
+        <mybatis.plus.version>3.5.7</mybatis.plus.version>
+        <!-- 与 mybatis-plus-core:${mybatis.plus.version} 中声明的 jsqlparser 版本一致（见中央仓库 POM） -->
+        <jsqlparser.version>4.9</jsqlparser.version>
+        <dynamic.datasource.version>4.3.1</dynamic.datasource.version>
+        <jjwt.version>0.12.5</jjwt.version>
+        <redisson.version>3.35.0</redisson.version>
+        <aviator.version>5.4.3</aviator.version>
+        <minio.version>8.5.12</minio.version>
+        <xxl.job.version>2.4.1</xxl.job.version>
+        <!-- 全模块统一 Java 17，避免未继承 spring-boot-parent 时回落到 1.8 导致 instanceof 模式匹配编译失败 -->
+        <maven.compiler.release>17</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!-- 与 spring-boot-dependencies:${spring.boot.version} 对齐；请用 JDK 17 运行 Maven（勿用 JDK 25 作为 MAVEN 的 java.home） -->
+        <lombok.version>1.18.38</lombok.version>
+        <springdoc.openapi.version>2.3.0</springdoc.openapi.version>
+        <knife4j.version>4.5.0</knife4j.version>
+    </properties>
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-dependencies</artifactId>
+                <version>${spring.boot.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.cloud</groupId>
+                <artifactId>spring-cloud-dependencies</artifactId>
+                <version>${spring.cloud.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>com.alibaba.cloud</groupId>
+                <artifactId>spring-cloud-alibaba-dependencies</artifactId>
+                <version>${spring.cloud.alibaba.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>com.nexus</groupId>
+                <artifactId>nexus-common</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.github.jsqlparser</groupId>
+                <artifactId>jsqlparser</artifactId>
+                <version>${jsqlparser.version}</version>
+            </dependency>
+            <!-- 显式锁定版本，供各模块引用；optional 的 nexus-common 不会传递 Lombok -->
+            <dependency>
+                <groupId>org.projectlombok</groupId>
+                <artifactId>lombok</artifactId>
+                <version>${lombok.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springdoc</groupId>
+                <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+                <version>${springdoc.openapi.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.github.xiaoymin</groupId>
+                <artifactId>knife4j-openapi3-jakarta-spring-boot-starter</artifactId>
+                <version>${knife4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.jsonwebtoken</groupId>
+                <artifactId>jjwt-api</artifactId>
+                <version>${jjwt.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.jsonwebtoken</groupId>
+                <artifactId>jjwt-impl</artifactId>
+                <version>${jjwt.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.jsonwebtoken</groupId>
+                <artifactId>jjwt-jackson</artifactId>
+                <version>${jjwt.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <!-- 3.13+ 对 JDK 17–22+ 的 javac 兼容性更好，可缓解 Lombok 与新版编译器组合时的 TypeTag 类问题 -->
+                    <version>3.11.0</version>
+                    <configuration>
+                        <!-- 以 release 为准统一字节码与系统 API；source/target 仅在 properties 中供 IDE 读取 -->
+                        <release>${maven.compiler.release}</release>
+                        <!-- Spring 6 / Spring Boot 3 要求 -parameters，否则 @PathVariable / @RequestParam 名称无法通过反射获取 -->
+                        <parameters>true</parameters>
+                        <!-- 顺序敏感：Lombok 必须最先；未使用 MapStruct，故不引入 mapstruct-processor -->
+                        <annotationProcessorPaths>
+                            <path>
+                                <groupId>org.projectlombok</groupId>
+                                <artifactId>lombok</artifactId>
+                                <version>${lombok.version}</version>
+                            </path>
+                            <path>
+                                <groupId>org.springframework.boot</groupId>
+                                <artifactId>spring-boot-configuration-processor</artifactId>
+                                <version>${spring.boot.version}</version>
+                            </path>
+                        </annotationProcessorPaths>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-maven-plugin</artifactId>
+                    <!-- 与 BOM 可略有差异；固定为本地已缓存版本，避免无网时解析 metadata 失败 -->
+                    <version>3.3.5</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <version>3.2.5</version>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+        <!--
+          版本与默认配置仅在 pluginManagement；可运行子模块各自在 <build><plugins> 中引用。
+          此处为聚合 POM 单独绑定一次：skip=true + inherited=false，避免
+          mvn -pl 某模块 -am spring-boot:run 时在根项目上解析主类失败。
+        -->
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <inherited>false</inherited>
+                <configuration>
+                    <skip>true</skip>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

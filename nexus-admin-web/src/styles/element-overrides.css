@@ -1,0 +1,106 @@
+/* Element Plus visual normalization */
+
+.el-card {
+  border: 1px solid var(--border-color) !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: var(--shadow-sm) !important;
+}
+
+.el-card.is-always-shadow,
+.el-card.is-hover-shadow:hover {
+  box-shadow: var(--shadow-md) !important;
+}
+
+.el-card__header {
+  border-bottom: 1px solid var(--border-color);
+  padding: 14px 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.el-card__body {
+  padding: 18px;
+}
+
+.el-table {
+  --el-table-border-color: var(--border-color);
+  --el-table-header-bg-color: #f8fafc;
+  --el-table-row-hover-bg-color: #eef2ff;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.el-table th.el-table__cell {
+  color: #64748b;
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.el-button {
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  transition: all var(--transition-fast);
+}
+
+.el-button--primary {
+  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-light) 100%);
+  border-color: var(--color-primary);
+  box-shadow: 0 6px 16px rgba(79, 70, 229, 0.2);
+}
+
+.el-button--primary:hover {
+  border-color: var(--color-primary-light);
+  transform: translateY(-1px);
+}
+
+.el-input__wrapper,
+.el-textarea__inner,
+.el-select__wrapper {
+  border-radius: var(--radius-sm);
+  box-shadow: none;
+}
+
+.el-input__wrapper.is-focus,
+.el-textarea__inner:focus,
+.el-select__wrapper.is-focused {
+  box-shadow: 0 0 0 1px var(--color-primary) inset;
+}
+
+.el-dialog {
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-lg);
+}
+
+.el-dialog__header {
+  margin-right: 0;
+  padding: 16px 22px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.el-dialog__title {
+  font-weight: 700;
+}
+
+.el-dialog__body {
+  padding: 22px;
+}
+
+.el-dialog__footer {
+  border-top: 1px solid var(--border-color);
+  padding: 14px 22px;
+}
+
+.el-drawer {
+  border-left: 1px solid var(--border-color);
+}
+
+.el-drawer__header {
+  margin-bottom: 0;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.el-drawer__body {
+  padding: 18px;
+}

@@ -1,0 +1,79 @@
+:root {
+  /* Brand */
+  --color-primary: #4f46e5;
+  --color-primary-light: #6366f1;
+  --color-primary-bg: #eef2ff;
+
+  /* Semantic */
+  --color-success: #16a34a;
+  --color-success-bg: #dcfce7;
+  --color-warning: #d97706;
+  --color-warning-bg: #fef3c7;
+  --color-danger: #dc2626;
+  --color-danger-bg: #fee2e2;
+  --color-info: #475569;
+  --color-info-bg: #e2e8f0;
+
+  /* Layout */
+  --sidebar-bg: #ffffff;
+  --sidebar-border: #e2e8f0;
+  --sidebar-text: #0f172a;
+  --sidebar-text-muted: #64748b;
+  --sidebar-active-bg: #eef2ff;
+  --sidebar-active-text: #4338ca;
+  --sidebar-hover-bg: #f8fafc;
+  --sidebar-width: 272px;
+  --sidebar-collapsed-width: 72px;
+
+  --header-height: 64px;
+  --header-bg: rgba(255, 255, 255, 0.88);
+  --header-border: #e2e8f0;
+
+  --main-bg: #f8fafc;
+  --page-bg: #ffffff;
+  --card-bg: #ffffff;
+  --border-color: #e2e8f0;
+
+  /* Radius */
+  --radius-sm: 12px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
+  --border-radius: var(--radius-sm);
+
+  /* Typography */
+  --font-family: Inter, "Segoe UI", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+  --font-size-xs: 11px;
+  --font-size-sm: 13px;
+  --font-size-base: 14px;
+  --font-size-lg: 16px;
+  --font-size-xl: 20px;
+
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #94a3b8;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06), 0 1px 1px rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.08), 0 2px 8px rgba(15, 23, 42, 0.06);
+  --shadow-lg: 0 16px 40px rgba(15, 23, 42, 0.12), 0 4px 16px rgba(15, 23, 42, 0.08);
+
+  --transition-fast: 0.16s ease;
+  --transition-normal: 0.24s ease;
+
+  /* Element Plus token override */
+  --el-color-primary: var(--color-primary);
+  --el-border-radius-base: var(--radius-sm);
+  --el-border-radius-small: 10px;
+  --el-border-radius-round: 999px;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  color: var(--text-primary);
+}

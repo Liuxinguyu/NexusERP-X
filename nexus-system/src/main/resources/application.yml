@@ -1,0 +1,83 @@
+server:
+  port: 8081
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  api-docs:
+    path: /v3/api-docs
+
+knife4j:
+  enable: true
+  setting:
+    language: zh_cn
+  production: false
+
+spring:
+  application:
+    name: nexus-system
+  profiles:
+    active: dev
+  cache:
+    type: simple
+
+---
+spring:
+  config:
+    activate:
+      on-profile: dev
+  autoconfigure:
+    exclude:
+      # 本地 dev 可不依赖独立 Redis 进程；会话仍用 spring-data-redis（Lettuce 懒连）
+      - org.redisson.spring.starter.RedissonAutoConfigurationV2
+  datasource:
+    dynamic:
+      primary: master
+      strict: false
+      datasource:
+        master:
+          url: jdbc:mysql://127.0.0.1:3306/nexus_dev?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai
+          driver-class-name: com.mysql.cj.jdbc.Driver
+          username: root
+          password: ""
+  sql:
+    init:
+      mode: never
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+      database: 0
+
+nexus:
+  captcha:
+    enabled: false
+  tenant:
+    default-tenant-id: 1
+    default-shop-id: 1
+    default-org-id: 1
+  security:
+    local-dev-permit-all-api: false
+    jwt:
+      # 【安全警告】生产环境必须修改为随机密钥（32+字符），通过环境变量覆盖
+      secret: ${JWT_SECRET:nexus-dev-jwt-secret-0123456789abcdef}
+      expiration-seconds: 604800
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  mapper-locations: classpath*:mapper/**/*.xml
+  global-config:
+    db-config:
+      logic-delete-field: del_flag
+      logic-not-delete-value: 0
+      logic-delete-value: 1
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  health:
+    redis:
+      enabled: false

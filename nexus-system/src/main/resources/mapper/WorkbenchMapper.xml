@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.nexus.system.infrastructure.mapper.WorkbenchMapper">
+
+    <!-- 今日销售额（已出库的销售订单，status=1） -->
+    <select id="todaySaleAmount" resultType="java.math.BigDecimal">
+        SELECT IFNULL(SUM(total_amount), 0)
+        FROM erp_sale_order
+        WHERE tenant_id = #{tenantId}
+          AND del_flag = 0
+          AND status = 1
+          AND DATE(create_time) = CURDATE()
+    </select>
+
+    <!-- 本月采购额（已入库的采购订单，status=3） -->
+    <select id="monthlyPurchaseAmount" resultType="java.math.BigDecimal">
+        SELECT IFNULL(SUM(total_amount), 0)
+        FROM erp_purchase_order
+        WHERE tenant_id = #{tenantId}
+          AND del_flag = 0
+          AND status = 3
+          AND DATE_FORMAT(create_time, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m')
+    </select>
+
+    <!-- 客户总数 -->
+    <select id="customerCount" resultType="java.lang.Long">
+        SELECT COUNT(*)
+        FROM erp_customer
+        WHERE tenant_id = #{tenantId}
+          AND del_flag = 0
+    </select>
+
+    <!-- 供应商总数 -->
+    <select id="supplierCount" resultType="java.lang.Long">
+        SELECT COUNT(*)
+        FROM erp_supplier
+        WHERE tenant_id = #{tenantId}
+          AND del_flag = 0
+          AND status = 1
+    </select>
+
+    <!-- 待审批数（请假待审批 + 采购待审核） -->
+    <select id="pendingApprovalCount" resultType="java.lang.Long">
+        SELECT (
+            SELECT COUNT(*) FROM oa_leave_request r
+            WHERE r.tenant_id = #{tenantId} AND r.del_flag = 0 AND r.status = 1
+              AND EXISTS (
+                  SELECT 1 FROM oa_leave_approval a
+                  WHERE a.tenant_id = #{tenantId} AND a.del_flag = 0
+                    AND a.leave_id = r.id AND a.approver_user_id = #{userId} AND a.status = 0
+              )
+        ) + (
+            SELECT COUNT(*) FROM erp_purchase_order p
+            WHERE p.tenant_id = #{tenantId} AND p.del_flag = 0 AND p.status IN (1, 2)
+        )
+    </select>
+
+    <!-- 库存预警数（当前库存 < 商品最低库存） -->
+    <select id="stockAlarmCount" resultType="java.lang.Long">
+        SELECT COUNT(DISTINCT s.id)
+        FROM erp_stock s
+        INNER JOIN erp_product_info p ON p.id = s.product_id AND p.tenant_id = #{tenantId} AND p.del_flag = 0
+        WHERE s.tenant_id = #{tenantId}
+          AND s.del_flag = 0
+          AND p.min_stock &gt; 0
+          AND s.qty &lt; p.min_stock
+    </select>
+
+    <!-- 销售趋势（近12个月，已出库） -->
+    <select id="saleTrend" resultType="com.nexus.system.application.dto.WorkbenchDtos$ChartDataPoint">
+        SELECT
+            DATE_FORMAT(create_time, '%Y-%m') AS month,
+            IFNULL(SUM(total_amount), 0) AS amount
+        FROM erp_sale_order
+        WHERE tenant_id = #{tenantId}
+          AND del_flag = 0
+          AND status = 1
+          AND create_time >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
+        GROUP BY DATE_FORMAT(create_time, '%Y-%m')
+        ORDER BY month ASC
+    </select>
+
+    <!-- 采购趋势（近12个月，已入库） -->
+    <select id="purchaseTrend" resultType="com.nexus.system.application.dto.WorkbenchDtos$ChartDataPoint">
+        SELECT
+            DATE_FORMAT(create_time, '%Y-%m') AS month,
+            IFNULL(SUM(total_amount), 0) AS amount
+        FROM erp_purchase_order
+        WHERE tenant_id = #{tenantId}
+          AND del_flag = 0
+          AND status = 3
+          AND create_time >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
+        GROUP BY DATE_FORMAT(create_time, '%Y-%m')
+        ORDER BY month ASC
+    </select>
+
+    <!-- 热销商品 TOP N（按销售数量排行） -->
+    <select id="topProducts" resultType="com.nexus.system.application.dto.WorkbenchDtos$TopProduct">
+        SELECT
+            si.product_id AS productId,
+            p.name AS productName,
+            SUM(si.quantity) AS saleQuantity,
+            SUM(si.subtotal) AS saleAmount
+        FROM erp_sale_order_item si
+        INNER JOIN erp_sale_order so ON so.id = si.order_id AND so.tenant_id = #{tenantId} AND so.del_flag = 0 AND so.status = 1
+        INNER JOIN erp_product_info p ON p.id = si.product_id AND p.tenant_id = #{tenantId} AND p.del_flag = 0
+        WHERE si.tenant_id = #{tenantId} AND si.del_flag = 0
+        GROUP BY si.product_id, p.name
+        ORDER BY saleQuantity DESC
+        LIMIT #{limit}
+    </select>
+
+    <!-- 库存预警列表 -->
+    <select id="stockAlarmList" resultType="com.nexus.system.application.dto.WorkbenchDtos$StockAlarmItem">
+        SELECT
+            s.product_id AS productId,
+            p.name AS productName,
+            w.name AS warehouseName,
+            s.qty AS currentQty,
+            p.min_stock AS minStock
+        FROM erp_stock s
+        INNER JOIN erp_product_info p ON p.id = s.product_id AND p.tenant_id = #{tenantId} AND p.del_flag = 0
+        INNER JOIN erp_warehouse w ON w.id = s.warehouse_id AND w.tenant_id = #{tenantId} AND w.del_flag = 0
+        WHERE s.tenant_id = #{tenantId}
+          AND s.del_flag = 0
+          AND p.min_stock > 0
+          AND s.qty &lt; p.min_stock
+        ORDER BY (p.min_stock - s.qty) DESC
+        LIMIT #{limit}
+    </select>
+
+</mapper>

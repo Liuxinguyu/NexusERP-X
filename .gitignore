@@ -1,0 +1,54 @@
+# === Java / Maven ===
+target/
+*.class
+*.jar
+*.war
+*.ear
+*.log
+hs_err_pid*
+.mvn/wrapper/maven-wrapper.jar
+
+# === Node.js / Frontend ===
+node_modules/
+dist/
+*.local
+
+# === IDE ===
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+*.iws
+*.ipr
+
+# === OS ===
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# === Logs ===
+*.log
+logs/
+
+# === Build scripts (dev only) ===
+grand_finale.sh
+grand_finale_v2.sh
+safe_verify.sh
+smoke_test.sh
+start_all_and_verify.sh
+test.sh
+verify.sh
+auth.log
+erp.log
+gateway.log
+oa.log
+system.log
+wage.log
+web.log
+common_install.log
+verify_result.txt
