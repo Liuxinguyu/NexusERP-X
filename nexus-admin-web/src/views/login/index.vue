@@ -71,6 +71,18 @@
             />
           </el-form-item>
 
+          <el-form-item prop="tenantId">
+            <label class="form-label">租户</label>
+            <el-select v-model="form.tenantId" placeholder="请选择租户">
+              <el-option
+                v-for="item in tenantOptions"
+                :key="item.value"
+                :label="item.label"
+                :value="item.value"
+              />
+            </el-select>
+          </el-form-item>
+
           <!-- 验证码（后端启用时才显示） -->
           <el-form-item v-if="captchaVisible" prop="captchaCode">
             <label class="form-label">验证码</label>
@@ -127,7 +139,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { User, Lock, CircleCheck, CircleClose, Check, Monitor } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
-import { captchaApi } from '@/api/captcha'
+import { authApi } from '@/api/auth'
 
 const router = useRouter()
 const route = useRoute()
@@ -149,14 +161,19 @@ const form = reactive({
   captchaKey: '',
 })
 
+const tenantOptions = [
+  { label: '默认租户（ID: 1）', value: 1 },
+]
+
 const rules: FormRules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
+  tenantId: [{ required: true, message: '请选择租户', trigger: 'change' }],
 }
 
 async function refreshCaptcha() {
   try {
-    const result = await captchaApi.getCaptcha()
+    const result = await authApi.getCaptchaImage()
     captchaUuid.value = result.uuid
     captchaImg.value = result.img
     captchaVisible.value = true
@@ -181,15 +198,15 @@ async function handleLogin() {
   errorMsg.value = ''
   try {
     form.captchaKey = captchaVisible.value ? captchaUuid.value : ''
-    await userStore.login({
+    await userStore.loginAction({
       username: form.username.trim(),
       password: form.password,
       tenantId: form.tenantId,
-      captcha: captchaVisible.value ? form.captchaCode : undefined,
-      captchaKey: captchaVisible.value ? form.captchaKey : undefined,
+      captcha: captchaVisible.value ? form.captchaCode : '',
+      captchaKey: captchaVisible.value ? form.captchaKey : '',
     })
     ElMessage.success('登录成功')
-    const redirect = (route.query.redirect as string) || '/dashboard'
+    const redirect = (route.query.redirect as string) || '/'
     router.push(redirect)
   } catch (e: any) {
     errorMsg.value = e.message || '登录失败，请检查用户名、密码和验证码'

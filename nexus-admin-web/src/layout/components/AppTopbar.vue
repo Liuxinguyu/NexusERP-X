@@ -1,9 +1,6 @@
 <template>
   <header class="app-topbar">
     <div class="left">
-      <el-button text class="collapse-btn" @click="$emit('toggle-sidebar')">
-        <el-icon><Fold v-if="!collapsed" /><Expand v-else /></el-icon>
-      </el-button>
       <div class="module-title">{{ moduleTitle || '工作台' }}</div>
     </div>
 
@@ -54,7 +51,6 @@ import { computed } from 'vue'
 type ShopItem = { shopId: number; shopName: string }
 
 const props = defineProps<{
-  collapsed: boolean
   moduleTitle: string
   latestNotice?: string
   shops: ShopItem[]
@@ -63,7 +59,6 @@ const props = defineProps<{
 }>()
 
 defineEmits<{
-  (e: 'toggle-sidebar'): void
   (e: 'switch-shop', shopId: number): void
   (e: 'refresh'): void
   (e: 'logout'): void
@@ -77,29 +72,31 @@ const userInitial = computed(() => (props.username?.[0] || '?').toUpperCase())
   height: var(--header-height);
   border-bottom: 1px solid var(--header-border);
   background: var(--header-bg);
-  backdrop-filter: blur(8px);
+  backdrop-filter: blur(10px);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0 16px;
+  padding: 0 24px;
 }
 
-.left, .right { display: flex; align-items: center; gap: 10px; }
-.module-title { font-size: 18px; font-weight: 700; letter-spacing: 0.2px; }
-
-.collapse-btn { color: var(--text-secondary); }
+.left, .right { display: flex; align-items: center; gap: 12px; }
+.module-title { font-size: 18px; font-weight: 700; letter-spacing: 0.1px; }
 .action-icon { color: var(--text-secondary); cursor: pointer; }
 
 .shop-chip, .user-chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
+  gap: 8px;
+  padding: 8px 12px;
   border-radius: 12px;
+  border: 1px solid transparent;
   cursor: pointer;
 }
 
-.shop-chip:hover, .user-chip:hover { background: #eef2ff; }
+.shop-chip:hover, .user-chip:hover {
+  background: #f8faff;
+  border-color: var(--border-color);
+}
 .user-name { font-size: 13px; font-weight: 600; }
-.avatar { background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-light) 100%); color: #fff; }
+.avatar { background: var(--color-primary); color: #fff; }
 </style>

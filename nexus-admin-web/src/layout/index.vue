@@ -1,46 +1,46 @@
 <template>
-  <div class="layout-wrapper">
-    <AppTopbar
-      :collapsed="appStore.sidebarCollapsed"
-      :module-title="currentModuleTitle"
-      :latest-notice="userStore.latestNotice"
-      :shops="userStore.shops"
-      :current-shop-name="userStore.currentShop?.shopName"
-      :username="userStore.profile?.realName || userStore.profile?.username"
-      @toggle-sidebar="appStore.toggleSidebar()"
-      @switch-shop="handleSwitchShop"
-      @refresh="router.go(0)"
-      @logout="userStore.logout()"
+  <div class="layout-root">
+    <AppSidebar
+      :menus="userStore.menus"
+      :current-path="route.path"
+      :active-module-base="currentModuleBase"
+      @navigate="navigateTo"
     />
 
-    <div class="body-wrapper">
-      <AppSidebar
+    <div class="layout-main">
+      <AppTopbar
+        :module-title="currentModuleTitle"
+        :latest-notice="userStore.latestNotice"
+        :shops="userStore.shops"
+        :current-shop-name="userStore.currentShop?.shopName"
+        :username="userStore.profile?.realName || userStore.profile?.username"
+        @switch-shop="handleSwitchShop"
+        @refresh="router.go(0)"
+        @logout="userStore.logout()"
+      />
+
+      <SubTabs
         :menus="userStore.menus"
-        :collapsed="appStore.sidebarCollapsed"
         :current-path="route.path"
+        :current-module-base="currentModuleBase"
         @navigate="navigateTo"
       />
 
-      <main class="content">
-        <SubTabs
-          :menus="userStore.menus"
-          :current-path="route.path"
-          :current-module-base="currentModuleBase"
-          @navigate="navigateTo"
-        />
-
-        <PageShell>
+      <main class="content-shell">
+        <section class="content-surface">
           <router-view v-slot="{ Component }">
-            <keep-alive><component :is="Component" /></keep-alive>
+            <transition name="page-fade" mode="out-in">
+              <component :is="Component" :key="route.fullPath" />
+            </transition>
           </router-view>
-        </PageShell>
+        </section>
       </main>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
@@ -48,26 +48,27 @@ import { useAppStore } from '@/stores/app'
 import AppSidebar from './components/AppSidebar.vue'
 import AppTopbar from './components/AppTopbar.vue'
 import SubTabs from './components/SubTabs.vue'
-import PageShell from './components/PageShell.vue'
 
 const userStore = useUserStore()
 const appStore = useAppStore()
 const route = useRoute()
 const router = useRouter()
 
-const currentModuleBase = computed(() => {
-  const parts = route.path.split('/').filter(Boolean)
+function resolveModuleBase(path: string): string {
+  const parts = path.split('/').filter(Boolean)
   if (!parts.length || parts[0] === 'dashboard') return '/dashboard'
   return `/${parts[0]}`
-})
+}
+
+const currentModuleBase = computed(() => resolveModuleBase(route.path))
 
 const currentModuleTitle = computed(() => {
   if (currentModuleBase.value === '/dashboard') return '工作台'
-  for (const m of userStore.menus) {
-    const p = `/${(m.fullPath || m.path || '').split('/').filter(Boolean)[0] || ''}`
-    if (p === currentModuleBase.value) return m.menuName
-  }
-  return '业务中心'
+  const matched = (userStore.menus || []).find((m) => {
+    const root = (m.fullPath || m.path || '').split('/').filter(Boolean)[0]
+    return `/${root}` === currentModuleBase.value
+  })
+  return matched?.menuName || '业务中心'
 })
 
 function navigateTo(path: string) {
@@ -84,8 +85,17 @@ async function handleSwitchShop(shopId: number) {
   }
 }
 
+watch(
+  () => route.path,
+  (path) => {
+    appStore.setActiveModuleBase(resolveModuleBase(path))
+    appStore.setActiveTabPath(path)
+  },
+  { immediate: true }
+)
+
 onMounted(async () => {
-  if (userStore.getToken() && !userStore.profile) {
+  if (userStore.getToken() && !userStore.userInfo) {
     await userStore.fetchUserInfo()
     await userStore.fetchShops()
   }
@@ -93,24 +103,42 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.layout-wrapper {
+.layout-root {
   display: flex;
-  flex-direction: column;
   height: 100vh;
   overflow: hidden;
+  background: var(--main-bg);
 }
 
-.body-wrapper {
-  display: flex;
-  flex: 1;
-  overflow: hidden;
-}
-
-.content {
-  display: flex;
-  flex-direction: column;
+.layout-main {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
+}
+
+.content-shell {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 24px;
+}
+
+.content-surface {
+  min-height: 100%;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.page-fade-enter-active,
+.page-fade-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.page-fade-enter-from,
+.page-fade-leave-to {
+  opacity: 0;
+  transform: translateY(4px);
 }
 </style>

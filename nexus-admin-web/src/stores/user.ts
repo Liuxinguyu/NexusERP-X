@@ -1,43 +1,38 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { authApi, type LoginReq, type LoginResp, type ShopItem } from '@/api/auth'
-import { systemApi, type UserProfile, type MenuNode } from '@/api/system'
+import { authApi, type LoginReq, type ShopItem, type CurrentUserInfo, type UserMenuNode } from '@/api/auth'
 import router from '@/router'
 
-// 注意：Vite 的 import.meta.glob key 是以 /src 开头的真实路径，不会按 alias "@/" 返回
+// 唯一视图源：所有本地页面都从该 glob 结果中解析
 const viewModules = import.meta.glob('/src/views/**/index.vue')
-const fallbackModule = import.meta.glob('/src/views/route-fallback/index.vue')
-
-type RouteFallbackDiag = {
-  menuName: string
-  fullPath: string
-  component: string
-  expectedViewKey: string
-}
+const FALLBACK_VIEW_KEY = '/src/views/route-fallback/index.vue'
 
 function normalizeMenuComponentToViewKey(component: string): string {
-  // 后端常见格式：views/system/user/index 或 views/erp/product/index
-  const c = String(component || '').trim().replace(/^\/+/, '')
-  if (!c) return '/src/views/route-fallback/index.vue'
-  if (c.startsWith('views/')) {
-    // views/**/index -> /src/views/**/index.vue
-    return `/src/${c}.vue`
-  }
-  // 兼容：system/user 或 system/user/index
-  if (c.endsWith('/index')) return `/src/views/${c}.vue`
-  return `/src/views/${c}/index.vue`
+  const normalized = String(component || '').trim().replace(/^\/+/, '').replace(/\.vue$/, '')
+  if (!normalized) return FALLBACK_VIEW_KEY
+  if (normalized.startsWith('src/views/')) return `/${normalized}.vue`
+  if (normalized.startsWith('views/')) return `/src/${normalized}.vue`
+  if (normalized.startsWith('/src/views/')) return `${normalized}.vue`
+  if (normalized.endsWith('/index')) return `/src/views/${normalized}.vue`
+  return `/src/views/${normalized}/index.vue`
 }
 
 export const useUserStore = defineStore('user', () => {
-  // token 初始为 null，首次访问时从 localStorage 读取（防止页面刷新后 token 丢失）
   const token = ref<string | null>(null)
-  const profile = ref<UserProfile | null>(null)
-  const menus = ref<MenuNode[]>([])
-  const latestNotice = ref<string>('')
+  const userInfo = ref<CurrentUserInfo | null>(null)
+  const menus = ref<UserMenuNode[]>([])
+  const permissions = ref<string[]>([])
+  const currentShopId = ref<number | null>(null)
+  const accessibleShopIds = ref<number[]>([])
   const shops = ref<ShopItem[]>([])
-  const currentShop = ref<ShopItem | null>(null)
+  const latestNotice = ref<string>('')
 
   const isLoggedIn = computed(() => !!getToken())
+  const profile = computed(() => userInfo.value as any)
+  const currentShop = computed(() => {
+    if (!currentShopId.value) return null
+    return shops.value.find((s) => s.shopId === currentShopId.value) ?? null
+  })
 
   function getToken(): string | null {
     if (!token.value) {
@@ -46,27 +41,31 @@ export const useUserStore = defineStore('user', () => {
     return token.value
   }
 
-  async function login(req: LoginReq) {
+  async function loginAction(req: LoginReq) {
     const resp = await authApi.login(req)
     token.value = resp.accessToken
     localStorage.setItem('nexus_token', resp.accessToken)
+    currentShopId.value = resp.currentShopId
+    accessibleShopIds.value = resp.accessibleShopIds || []
     await fetchUserInfo()
     await fetchShops()
     return resp
   }
 
   async function fetchUserInfo() {
-    const data = await systemApi.getUserInfo()
-    profile.value = data.profile
-    menus.value = data.menus
-    latestNotice.value = data.latestNoticeTitle
+    const data = await authApi.getCurrentUserInfo()
+    userInfo.value = data
+    menus.value = data.menus || []
+    permissions.value = data.permissions || []
+    currentShopId.value = data.shopId || null
+    accessibleShopIds.value = []
     addAccessibleRoutes()
   }
 
   async function fetchShops() {
     shops.value = await authApi.getShops()
-    if (profile.value?.currentShopId) {
-      currentShop.value = shops.value.find(s => s.shopId === profile.value!.currentShopId) ?? null
+    if (!currentShopId.value && shops.value.length) {
+      currentShopId.value = shops.value[0].shopId
     }
   }
 
@@ -74,6 +73,8 @@ export const useUserStore = defineStore('user', () => {
     const resp = await authApi.switchShop(shopId)
     token.value = resp.accessToken
     localStorage.setItem('nexus_token', resp.accessToken)
+    currentShopId.value = resp.currentShopId
+    accessibleShopIds.value = resp.accessibleShopIds || []
     await fetchUserInfo()
     await fetchShops()
   }
@@ -81,33 +82,31 @@ export const useUserStore = defineStore('user', () => {
   async function logout() {
     try { await authApi.logout() } catch {}
     token.value = null
-    profile.value = null
+    userInfo.value = null
     menus.value = []
+    permissions.value = []
+    currentShopId.value = null
+    accessibleShopIds.value = []
     shops.value = []
-    currentShop.value = null
     localStorage.removeItem('nexus_token')
     router.push('/login')
   }
 
-  function buildFlatRoutes(menuNodes: MenuNode[]): any[] {
+  function buildFlatRoutes(menuNodes: UserMenuNode[]): any[] {
     const flat: any[] = []
     for (const node of menuNodes) {
       const name = '__dyn_' + node.menuName
       if (node.component) {
         // fullPath 为空时给一个稳定兜底，避免 addRoute 时报错
         const fullPath = node.fullPath || (node.path ? (node.path.startsWith('/') ? node.path : `/${node.path}`) : `/menu-${node.id}`)
-        // 优先用后端 component 字段定位视图文件，避免用 fullPath 推导导致层级错位（如 /system/erp/...）
         const viewKey = normalizeMenuComponentToViewKey(node.component)
         const hasView = !!viewModules[viewKey]
-        const importer = viewModules[viewKey] || fallbackModule['/src/views/route-fallback/index.vue']
-        const fallbackDiag: RouteFallbackDiag | undefined = hasView
-          ? undefined
-          : {
-              menuName: node.menuName,
-              fullPath,
-              component: String(node.component),
-              expectedViewKey: viewKey,
-            }
+        if (!hasView) {
+          console.warn(
+            `[Router] 视图映射失败: 菜单名称为 ${node.menuName}, 预期的 component 路径为 ${viewKey}`
+          )
+        }
+        const importer = viewModules[viewKey] || viewModules[FALLBACK_VIEW_KEY]
         flat.push({
           path: fullPath, // '/system/user' — 完整绝对路径
           name,
@@ -116,7 +115,6 @@ export const useUserStore = defineStore('user', () => {
             title: node.menuName,
             icon: node.icon,
             perms: node.perms,
-            ...(fallbackDiag ? { __fallback: fallbackDiag } : {}),
           },
         })
       }
@@ -126,29 +124,6 @@ export const useUserStore = defineStore('user', () => {
       }
     }
     return flat
-  }
-
-  function reportMenuRouteMismatches(menuNodes: MenuNode[]) {
-    if (!import.meta.env.DEV) return
-    const missing: Array<{ menu: string; fullPath: string; component: string; expectedView: string }> = []
-    const walk = (nodes: MenuNode[]) => {
-      for (const node of nodes) {
-        if (node.component) {
-          const viewKey = normalizeMenuComponentToViewKey(node.component)
-          if (!viewModules[viewKey]) {
-            const fullPath = node.fullPath || (node.path ? (node.path.startsWith('/') ? node.path : `/${node.path}`) : `/menu-${node.id}`)
-            missing.push({ menu: node.menuName, fullPath, component: String(node.component), expectedView: viewKey })
-          }
-        }
-        if (node.children?.length) walk(node.children)
-      }
-    }
-    walk(menuNodes)
-    if (missing.length) {
-      console.groupCollapsed(`[route-check] 发现 ${missing.length} 个菜单未匹配前端视图`)
-      console.table(missing)
-      console.groupEnd()
-    }
   }
 
   function addAccessibleRoutes() {
@@ -161,7 +136,6 @@ export const useUserStore = defineStore('user', () => {
     }
     // 全部平铺注册（每个路由用完整路径，如 /system/user）
     const flatRoutes = buildFlatRoutes(menus.value)
-    reportMenuRouteMismatches(menus.value)
     for (const r of flatRoutes) {
       router.addRoute(r)
     }
@@ -170,9 +144,10 @@ export const useUserStore = defineStore('user', () => {
   return {
     token,           // 暴露原始 ref（写操作）
     getToken,        // 暴露读取方法（读操作：自动同步 localStorage）
-    profile, menus, latestNotice, shops, currentShop,
+    userInfo, currentShopId, accessibleShopIds, menus, permissions,
+    profile, latestNotice, shops, currentShop,
     isLoggedIn,
-    login, fetchUserInfo, fetchShops, switchShop, logout,
+    loginAction, login: loginAction, fetchUserInfo, fetchShops, switchShop, logout,
     addAccessibleRoutes,
   }
 })

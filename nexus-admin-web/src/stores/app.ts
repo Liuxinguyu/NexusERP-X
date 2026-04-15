@@ -2,16 +2,21 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
 export const useAppStore = defineStore('app', () => {
-  const sidebarCollapsed = ref(false)
-  const activeMenu = ref('')
+  const activeModuleBase = ref('/dashboard')
+  const activeTabPath = ref('/dashboard')
 
-  function toggleSidebar() {
-    sidebarCollapsed.value = !sidebarCollapsed.value
+  function setActiveModuleBase(base: string) {
+    activeModuleBase.value = base || '/dashboard'
   }
 
-  function setActiveMenu(path: string) {
-    activeMenu.value = path
+  function setActiveTabPath(path: string) {
+    activeTabPath.value = path || '/dashboard'
   }
 
-  return { sidebarCollapsed, activeMenu, toggleSidebar, setActiveMenu }
+  return {
+    activeModuleBase,
+    activeTabPath,
+    setActiveModuleBase,
+    setActiveTabPath,
+  }
 })

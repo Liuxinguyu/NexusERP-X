@@ -1,6 +1,6 @@
 <template>
   <div v-if="tabs.length" class="sub-tabs-wrap">
-    <div class="sub-tabs">
+    <div ref="tabsRef" class="sub-tabs">
       <button
         v-for="tab in tabs"
         :key="tab.path"
@@ -15,11 +15,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import type { MenuNode } from '@/api/system'
+import { computed, ref, watch, nextTick } from 'vue'
+import type { UserMenuNode } from '@/api/auth'
 
 const props = defineProps<{
-  menus: MenuNode[]
+  menus: UserMenuNode[]
   currentPath: string
   currentModuleBase: string
 }>()
@@ -34,7 +34,7 @@ function normalize(path: string): string {
   return path.startsWith('/') ? path : `/${path}`
 }
 
-function collectLeaf(nodes: MenuNode[] | undefined, out: TabItem[]) {
+function collectLeaf(nodes: UserMenuNode[] | undefined, out: TabItem[]) {
   for (const n of nodes || []) {
     if (n.component) {
       const p = normalize(n.fullPath || n.path)
@@ -62,42 +62,64 @@ const tabs = computed<TabItem[]>(() => {
 function isActive(path: string): boolean {
   return props.currentPath === path || props.currentPath.startsWith(`${path}/`)
 }
+
+const tabsRef = ref<HTMLElement | null>(null)
+
+watch(
+  () => props.currentPath,
+  async () => {
+    await nextTick()
+    const wrap = tabsRef.value
+    if (!wrap) return
+    const active = wrap.querySelector('.tab-btn.active') as HTMLElement | null
+    if (!active) return
+    const left = active.offsetLeft - 24
+    wrap.scrollTo({ left, behavior: 'smooth' })
+  },
+  { immediate: true }
+)
 </script>
 
 <style scoped>
 .sub-tabs-wrap {
   border-bottom: 1px solid var(--border-color);
-  background: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.82);
+  padding: 8px 24px;
 }
 
 .sub-tabs {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   overflow-x: auto;
-  padding: 10px 16px;
+  scrollbar-width: none;
+}
+
+.sub-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .tab-btn {
   border: 1px solid transparent;
   background: transparent;
   color: var(--text-secondary);
-  border-radius: 999px;
-  padding: 8px 14px;
+  border-radius: 10px;
+  padding: 10px 14px;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
+  transition: background-color var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
 }
 
 .tab-btn:hover {
-  background: #eef2ff;
+  background: #f5f7ff;
   color: var(--color-primary);
 }
 
 .tab-btn.active {
   background: #fff;
-  border-color: #c7d2fe;
+  border-color: #d7dcff;
   color: var(--color-primary);
-  box-shadow: var(--shadow-sm);
+  font-weight: 700;
 }
 </style>
