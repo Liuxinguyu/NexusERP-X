@@ -64,9 +64,6 @@
         <el-form-item label="仓库ID" required>
           <el-input-number v-model="form.warehouseId" :min="1" style="width:100%" />
         </el-form-item>
-        <el-form-item label="总金额">
-          <el-input-number v-model="form.totalAmount" :min="0" :precision="2" style="width:100%" />
-        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -116,14 +113,17 @@ const errorMsg = ref('')
 const form = reactive({
   supplierId: 0,
   warehouseId: 0,
-  totalAmount: 0,
 })
 
 async function loadData() {
   loading.value = true
   errorMsg.value = ''
   try {
-    const res = await erpApi.getPurchaseOrderPage(page.value, size.value, filterStatus.value)
+    const res = await erpApi.getPurchaseOrderPage({
+      current: page.value,
+      size: size.value,
+      status: filterStatus.value,
+    })
     tableData.value = res.records ?? res.list ?? []
     total.value = res.total
   } catch {
@@ -140,7 +140,7 @@ function handleSearch() {
 }
 
 function openDialog() {
-  Object.assign(form, { supplierId: 0, warehouseId: 0, totalAmount: 0 })
+  Object.assign(form, { supplierId: 0, warehouseId: 0 })
   dialogVisible.value = true
 }
 
@@ -151,7 +151,11 @@ async function handleSave() {
   }
   saving.value = true
   try {
-    await erpApi.createPurchaseOrder(form)
+    await erpApi.createPurchaseOrder({
+      supplierId: form.supplierId,
+      warehouseId: form.warehouseId,
+      items: [],
+    })
     ElMessage.success('创建成功')
     dialogVisible.value = false
     loadData()

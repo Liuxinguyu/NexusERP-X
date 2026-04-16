@@ -301,30 +301,22 @@ export const erpApi = {
   deleteSupplier: (id: number) => del(`/erp/suppliers/${id}`),
 
   // Warehouses
-  getWarehousePage: (paramsOrCurrent: WarehousePageQuery | number, size?: number, warehouseName?: string) =>
-    typeof paramsOrCurrent === 'number'
-      ? get<PageResult<ErpWarehouse>>('/erp/warehouses/page', withPageParams(paramsOrCurrent, size ?? 10, { warehouseName }))
-      : get<PageResult<ErpWarehouse>>('/erp/warehouses/page', withPageParams(paramsOrCurrent.current, paramsOrCurrent.size, paramsOrCurrent)),
+  getWarehousePage: (params: WarehousePageQuery) =>
+    get<PageResult<ErpWarehouse>>('/erp/warehouses/page', withPageParams(params.current, params.size, params)),
   addWarehouse: (data: WarehouseUpsertDTO) => post<number>('/erp/warehouses', data),
   createWarehouse: (data: WarehouseUpsertDTO) => post<number>('/erp/warehouses', data),
   updateWarehouse: (id: number, data: WarehouseUpsertDTO) => put(`/erp/warehouses/${id}`, data),
   deleteWarehouse: (id: number) => del(`/erp/warehouses/${id}`),
 
   // Stock
-  getStockPage: (paramsOrCurrent: StockPageQuery | number, size?: number, productId?: number, warehouseId?: number) =>
-    typeof paramsOrCurrent === 'number'
-      ? get<PageResult<ErpStock>>('/erp/stocks/page', withPageParams(paramsOrCurrent, size ?? 10, { productId, warehouseId }))
-      : get<PageResult<ErpStock>>('/erp/stocks/page', withPageParams(paramsOrCurrent.current, paramsOrCurrent.size, paramsOrCurrent)),
+  getStockPage: (params: StockPageQuery) =>
+    get<PageResult<ErpStock>>('/erp/stocks/page', withPageParams(params.current, params.size, params)),
 
   // Sale Orders
   getSaleOrderPage: (params: SaleOrderPageQuery) =>
     get<PageResult<ErpSaleOrder>>('/erp/sale-orders/page', withPageParams(params.current, params.size, params)),
   getSaleOrderDetail: (id: number) => get<ErpSaleOrder>(`/erp/sale-orders/${id}`),
   getSaleOrderItems: (id: number) => get<SaleOrderItem[]>(`/erp/sale-orders/${id}/items`),
-  // 兼容旧路径
-  getSaleOrderPageLegacy: (current: number, size: number, status?: number, orderNo?: string) =>
-    get<PageResult<ErpSaleOrder>>('/erp/sale-order/page', withPageParams(current, size, { status, orderNo })),
-  getSaleOrderItemsLegacy: (id: number) => get<SaleOrderItem[]>('/erp/sale-order/' + id + '/items'),
   addSaleOrder: (data: any) => post<number>('/erp/sale-orders', data),
   updateSaleOrder: (id: number, data: any) => put(`/erp/sale-orders/${id}`, data),
   createSaleOrder: (data: any) => post<number>('/erp/sale-order', data),
@@ -335,10 +327,8 @@ export const erpApi = {
   deleteSaleOrder: (id: number) => del(`/erp/sale-order/${id}`),
 
   // Purchase Orders
-  getPurchaseOrderPage: (paramsOrCurrent: PurchaseOrderPageQuery | number, size?: number, status?: number) =>
-    typeof paramsOrCurrent === 'number'
-      ? get<PageResult<ErpPurchaseOrder>>('/erp/purchase-orders/page', withPageParams(paramsOrCurrent, size ?? 10, { status }))
-      : get<PageResult<ErpPurchaseOrder>>('/erp/purchase-orders/page', withPageParams(paramsOrCurrent.current, paramsOrCurrent.size, paramsOrCurrent)),
+  getPurchaseOrderPage: (params: PurchaseOrderPageQuery) =>
+    get<PageResult<ErpPurchaseOrder>>('/erp/purchase-orders/page', withPageParams(params.current, params.size, params)),
   createPurchaseOrder: (data: PurchaseOrderCreateDTO) => post<number>('/erp/purchase-orders', data),
   getPurchaseOrderDetail: (id: number) => get<ErpPurchaseOrder>(`/erp/purchase-orders/${id}`),
   getPurchaseOrderItems: (id: number) => get<PurchaseOrderItem[]>(`/erp/purchase-orders/${id}/items`),

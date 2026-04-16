@@ -282,7 +282,7 @@ async function ensureBaseOptions() {
     customerOptions.value = customerRes.records ?? customerRes.list ?? []
   }
   if (!warehouseOptions.value.length) {
-    const warehouseRes = await erpApi.getWarehousePage(1, 200)
+    const warehouseRes = await erpApi.getWarehousePage({ current: 1, size: 200 })
     warehouseOptions.value = warehouseRes.records ?? warehouseRes.list ?? []
   }
   if (!productOptions.value.length) {
@@ -299,21 +299,12 @@ async function loadData() {
   loading.value = true
   errorMsg.value = ''
   try {
-    const res = await erpApi
-      .getSaleOrderPage({
-        current: queryParams.current,
-        size: queryParams.size,
-        status: queryParams.status,
-        orderNo: queryParams.orderNo.trim() || undefined,
-      })
-      .catch(() =>
-        erpApi.getSaleOrderPageLegacy(
-          queryParams.current,
-          queryParams.size,
-          queryParams.status,
-          queryParams.orderNo.trim() || undefined
-        )
-      )
+    const res = await erpApi.getSaleOrderPage({
+      current: queryParams.current,
+      size: queryParams.size,
+      status: queryParams.status,
+      orderNo: queryParams.orderNo.trim() || undefined,
+    })
     tableData.value = (res.records ?? res.list ?? []) as ErpSaleOrder[]
     total.value = res.total ?? 0
     if (res.current != null) queryParams.current = Number(res.current)
@@ -359,7 +350,7 @@ async function openEditDrawer(row: ErpSaleOrder) {
   await ensureBaseOptions()
   const [detail, items] = await Promise.all([
     erpApi.getSaleOrderDetail(row.id).catch(() => row),
-    erpApi.getSaleOrderItems(row.id).catch(() => erpApi.getSaleOrderItemsLegacy(row.id)),
+    erpApi.getSaleOrderItems(row.id),
   ])
   Object.assign(formModel, {
     id: row.id,
@@ -383,7 +374,7 @@ async function onDrawerOpened() {
   try {
     const [detail, items] = await Promise.all([
       erpApi.getSaleOrderDetail(activeOrder.value.id).catch(() => activeOrder.value as ErpSaleOrder),
-      erpApi.getSaleOrderItems(activeOrder.value.id).catch(() => erpApi.getSaleOrderItemsLegacy(activeOrder.value!.id)),
+      erpApi.getSaleOrderItems(activeOrder.value.id),
     ])
     activeOrder.value = detail
     detailItems.value = items

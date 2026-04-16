@@ -1,64 +1,143 @@
 <template>
   <div class="page-container">
-    <el-card class="search-card" shadow="never">
-      <div class="toolbar">
-        <el-input v-model="filterProductId" placeholder="产品ID" :clearable="true" style="width:140px;margin-right:8px" type="number" @keyup.enter="handleSearch" />
-        <el-input v-model="filterWarehouseId" placeholder="仓库ID" :clearable="true" style="width:140px;margin-right:8px" type="number" @keyup.enter="handleSearch" />
-        <el-button type="primary" :icon="Search" @click="handleSearch">查询</el-button>
-      </div>
-    </el-card>
-    <el-card class="table-card" shadow="never">
-    <el-table :data="tableData" stripe v-loading="loading">
-      <el-table-column prop="productId" label="产品ID" width="100" />
-      <el-table-column prop="productName" label="产品名称" />
-      <el-table-column prop="warehouseId" label="仓库ID" width="100" />
-      <el-table-column prop="warehouseName" label="仓库名称" />
-      <el-table-column label="库存数量" width="120" align="center">
-        <template #default="{ row }">
-          <el-tag :type="row.qty < 10 ? 'danger' : row.qty < 50 ? 'warning' : 'success'" size="small">
-            {{ row.qty }}
-          </el-tag>
-        </template>
-      </el-table-column>
-    </el-table>
+    <NexusSearchCard>
+      <el-form :inline="true" class="search-form" @submit.prevent>
+        <el-form-item label="产品名称">
+          <el-input v-model="queryParams.productName" placeholder="请输入产品名称" clearable @keyup.enter="handleQuery" />
+        </el-form-item>
+        <el-form-item label="所属仓库">
+          <el-select v-model="queryParams.warehouseId" placeholder="请选择仓库" clearable filterable style="width: 220px">
+            <el-option v-for="item in warehouseOptions" :key="item.id" :label="item.warehouseName" :value="item.id" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #actions>
+        <div class="search-actions">
+          <el-button type="primary" :icon="Search" @click="handleQuery">查询</el-button>
+          <el-button :icon="RefreshRight" @click="resetQuery">重置</el-button>
+        </div>
+      </template>
+    </NexusSearchCard>
+
+    <NexusTableCard v-model:current="queryParams.current" v-model:size="queryParams.size" :loading="loading" :total="total" @pagination-change="loadData">
+      <el-table :data="displayData" height="100%">
+        <el-table-column label="产品图片" width="100" align="center">
+          <template #default>
+            <div class="image-placeholder">—</div>
+          </template>
+        </el-table-column>
+        <el-table-column prop="productName" label="产品名称" min-width="180" />
+        <el-table-column label="规格型号" min-width="140">
+          <template #default>
+            <span class="muted-text">—</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="warehouseName" label="所属仓库" min-width="160" />
+        <el-table-column label="当前库存" width="180">
+          <template #default="{ row }">
+            <div class="qty-cell">
+              <span :class="['qty-value', { danger: row.lowStock }]">{{ row.qty ?? row.quantity ?? 0 }}</span>
+              <el-tag v-if="row.lowStock" type="danger" effect="light" size="small">低库存</el-tag>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="单位" width="100">
+          <template #default>
+            <span class="muted-text">—</span>
+          </template>
+        </el-table-column>
+      </el-table>
+    </NexusTableCard>
+
     <RequestErrorState v-if="errorMsg && !loading" :description="errorMsg" @retry="loadData" />
-    <el-pagination
-      v-model:current-page="page"
-      v-model:page-size="size"
-      :total="total"
-      :page-sizes="[10,20,50]"
-      layout="total,sizes,prev,pager,next"
-      @current-change="loadData"
-      @size-change="loadData"
-      style="margin-top:16px"
-    />
-    </el-card>
+    <div v-if="!loading" class="page-tip">产品名称筛选基于当前页已加载数据。</div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Search } from '@element-plus/icons-vue'
-import { erpApi } from '@/api/erp'
+import { RefreshRight, Search } from '@element-plus/icons-vue'
+import { erpApi, type ErpStock, type ErpWarehouse } from '@/api/erp'
+import NexusSearchCard from '@/components/NexusSearchCard/index.vue'
+import NexusTableCard from '@/components/NexusTableCard/index.vue'
 import RequestErrorState from '@/components/RequestErrorState.vue'
 
-const tableData = ref<any[]>([])
+type StockTableRow = ErpStock & {
+  lowStock: boolean
+}
+
+type StockAlarmRow = {
+  productId?: number
+  warehouseName?: string
+  currentQty?: number
+  minStock?: number
+}
+
 const loading = ref(false)
-const page = ref(1)
-const size = ref(10)
 const total = ref(0)
-const filterProductId = ref<number | undefined>()
-const filterWarehouseId = ref<number | undefined>()
 const errorMsg = ref('')
+const rawTableData = ref<ErpStock[]>([])
+const warehouseOptions = ref<ErpWarehouse[]>([])
+const alarmMap = ref(new Map<string, boolean>())
+
+const queryParams = reactive({
+  current: 1,
+  size: 10,
+  productName: '',
+  warehouseId: undefined as number | undefined,
+})
+
+const displayData = computed<StockTableRow[]>(() => {
+  const keyword = queryParams.productName.trim().toLowerCase()
+  return rawTableData.value
+    .filter((item) => !keyword || item.productName.toLowerCase().includes(keyword))
+    .map((item) => ({
+      ...item,
+      lowStock: alarmMap.value.get(buildAlarmKey(item.productId, item.warehouseName)) ?? false,
+    }))
+})
+
+function buildAlarmKey(productId?: number, warehouseName?: string) {
+  return `${productId ?? ''}::${warehouseName ?? ''}`
+}
+
+async function loadWarehouseOptions() {
+  const res = await erpApi.getWarehousePage({ current: 1, size: 1000 })
+  warehouseOptions.value = (res.records ?? res.list ?? []) as ErpWarehouse[]
+}
+
+async function loadAlarmMap() {
+  try {
+    const res = await erpApi.getStockAlarm()
+    const list = Array.isArray(res) ? res : Array.isArray(res?.records) ? res.records : []
+    const nextMap = new Map<string, boolean>()
+    ;(list as StockAlarmRow[]).forEach((item) => {
+      const currentQty = Number(item.currentQty ?? 0)
+      const minStock = Number(item.minStock ?? 0)
+      if (item.productId != null && item.warehouseName && currentQty <= minStock) {
+        nextMap.set(buildAlarmKey(item.productId, item.warehouseName), true)
+      }
+    })
+    alarmMap.value = nextMap
+  } catch {
+    alarmMap.value = new Map<string, boolean>()
+  }
+}
 
 async function loadData() {
   loading.value = true
   errorMsg.value = ''
   try {
-    const res = await erpApi.getStockPage(page.value, size.value, filterProductId.value, filterWarehouseId.value)
-    tableData.value = res.records ?? res.list ?? []
-    total.value = res.total
+    const res = await erpApi.getStockPage({
+      current: queryParams.current,
+      size: queryParams.size,
+      warehouseId: queryParams.warehouseId,
+    })
+    rawTableData.value = (res.records ?? res.list ?? []) as ErpStock[]
+    total.value = res.total ?? 0
+    if (res.current != null) queryParams.current = Number(res.current)
+    if (res.size != null) queryParams.size = Number(res.size)
   } catch {
     ElMessage.error('加载数据失败')
     errorMsg.value = '库存列表加载失败'
@@ -67,15 +146,81 @@ async function loadData() {
   }
 }
 
-function handleSearch() {
-  page.value = 1
+function handleQuery() {
+  queryParams.current = 1
   loadData()
 }
 
-onMounted(() => loadData())
+function resetQuery() {
+  queryParams.productName = ''
+  queryParams.warehouseId = undefined
+  queryParams.current = 1
+  loadData()
+}
+
+onMounted(async () => {
+  await Promise.all([loadWarehouseOptions(), loadAlarmMap()])
+  loadData()
+})
 </script>
 
 <style scoped>
-.page-container { padding: 16px; }
-.toolbar { margin-bottom: 12px; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.search-form {
+  margin-bottom: 0;
+}
+.search-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.image-placeholder {
+  width: 40px;
+  height: 40px;
+  margin: 0 auto;
+  border-radius: 12px;
+  background: #f8fafc;
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.qty-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.qty-value {
+  font-weight: 600;
+  color: #0f172a;
+}
+.qty-value.danger {
+  color: #dc2626;
+}
+.muted-text {
+  color: #94a3b8;
+}
+.page-tip {
+  margin-top: 12px;
+  color: #94a3b8;
+  font-size: 12px;
+}
+.page-container :deep(.el-table) {
+  height: 100%;
+}
+.page-container :deep(.el-table th.el-table__cell) {
+  color: #64748b;
+  font-weight: 600;
+}
+.page-container :deep(.el-table td.el-table__cell),
+.page-container :deep(.el-table th.el-table__cell) {
+  border-right: none !important;
+}
+.page-container :deep(.el-table--border::after),
+.page-container :deep(.el-table--group::after),
+.page-container :deep(.el-table::before) {
+  display: none;
+}
+.page-container :deep(.el-table tr td.el-table__cell) {
+  border-bottom: 1px solid #f1f5f9;
+}
 </style>
