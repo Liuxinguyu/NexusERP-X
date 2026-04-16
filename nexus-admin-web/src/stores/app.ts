@@ -1,12 +1,13 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
+/** 一级模块路径前缀，如 /dashboard、/erp、/system */
 export const useAppStore = defineStore('app', () => {
-  const activeModuleBase = ref('/dashboard')
+  const activeModule = ref('/dashboard')
   const activeTabPath = ref('/dashboard')
 
-  function setActiveModuleBase(base: string) {
-    activeModuleBase.value = base || '/dashboard'
+  function setActiveModule(base: string) {
+    activeModule.value = base || '/dashboard'
   }
 
   function setActiveTabPath(path: string) {
@@ -14,9 +15,9 @@ export const useAppStore = defineStore('app', () => {
   }
 
   return {
-    activeModuleBase,
+    activeModule,
     activeTabPath,
-    setActiveModuleBase,
+    setActiveModule,
     setActiveTabPath,
   }
 })

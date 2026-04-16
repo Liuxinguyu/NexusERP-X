@@ -4,6 +4,7 @@
       <button
         v-for="tab in tabs"
         :key="tab.path"
+        type="button"
         class="tab-btn"
         :class="{ active: isActive(tab.path) }"
         @click="$emit('navigate', tab.path)"
@@ -21,7 +22,7 @@ import type { UserMenuNode } from '@/api/auth'
 const props = defineProps<{
   menus: UserMenuNode[]
   currentPath: string
-  currentModuleBase: string
+  currentModule: string
 }>()
 
 defineEmits<{
@@ -34,29 +35,56 @@ function normalize(path: string): string {
   return path.startsWith('/') ? path : `/${path}`
 }
 
-function collectLeaf(nodes: UserMenuNode[] | undefined, out: TabItem[]) {
+function findFirstLeafPath(node: UserMenuNode): string {
+  if (node.component) return normalize(node.fullPath || node.path) || ''
+  for (const c of node.children || []) {
+    const p = findFirstLeafPath(c)
+    if (p) return p
+  }
+  return normalize(node.fullPath || node.path) || ''
+}
+
+/** 仅展示当前一级模块下的「二级」菜单：根节点的直接子节点，每个 Tab 对应一条可访问路由 */
+function collectSecondLevelTabs(root: UserMenuNode): TabItem[] {
+  const out: TabItem[] = []
+  for (const child of root.children || []) {
+    const path = child.component ? normalize(child.fullPath || child.path) : findFirstLeafPath(child)
+    if (!path) continue
+    out.push({ path, label: child.menuName, sort: child.sort || 0 })
+  }
+  return out.sort((a, b) => a.sort - b.sort)
+}
+
+/** 无二级节点时：收集该模块下所有可路由叶子（兼容旧菜单扁平结构） */
+function collectLeafTabs(nodes: UserMenuNode[] | undefined, out: TabItem[]) {
   for (const n of nodes || []) {
     if (n.component) {
       const p = normalize(n.fullPath || n.path)
-      out.push({ path: p, label: n.menuName, sort: n.sort || 0 })
+      if (p) out.push({ path: p, label: n.menuName, sort: n.sort || 0 })
     }
-    if (n.children?.length) collectLeaf(n.children, out)
+    if (n.children?.length) collectLeafTabs(n.children, out)
   }
 }
 
 const tabs = computed<TabItem[]>(() => {
-  if (!props.currentModuleBase || props.currentModuleBase === '/dashboard') return []
-  const out: TabItem[] = []
+  if (!props.currentModule || props.currentModule === '/dashboard') return []
   for (const root of props.menus || []) {
     const rootBase = normalize((root.fullPath || root.path || '').split('/').filter(Boolean)[0] || '')
-    if (rootBase === props.currentModuleBase) {
-      collectLeaf([root], out)
-      break
+    if (rootBase === props.currentModule) {
+      const second = collectSecondLevelTabs(root)
+      if (second.length) return second
+      if (root.component) {
+        const p = normalize(root.fullPath || root.path)
+        if (p) return [{ path: p, label: root.menuName, sort: root.sort || 0 }]
+      }
+      const fallback: TabItem[] = []
+      collectLeafTabs(root.children, fallback)
+      const dedup = new Map<string, TabItem>()
+      for (const t of fallback) dedup.set(t.path, t)
+      return Array.from(dedup.values()).sort((a, b) => a.sort - b.sort)
     }
   }
-  const dedup = new Map<string, TabItem>()
-  for (const t of out) dedup.set(t.path, t)
-  return Array.from(dedup.values()).sort((a, b) => a.sort - b.sort)
+  return []
 })
 
 function isActive(path: string): boolean {
@@ -82,14 +110,14 @@ watch(
 
 <style scoped>
 .sub-tabs-wrap {
-  border-bottom: 1px solid var(--border-color);
   background: rgba(255, 255, 255, 0.82);
-  padding: 8px 24px;
+  padding: 0 24px;
+  border-bottom: none;
 }
 
 .sub-tabs {
   display: flex;
-  gap: 10px;
+  gap: 4px;
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -99,27 +127,36 @@ watch(
 }
 
 .tab-btn {
-  border: 1px solid transparent;
+  position: relative;
+  border: none;
   background: transparent;
   color: var(--text-secondary);
-  border-radius: 10px;
-  padding: 10px 14px;
+  border-radius: 0;
+  padding: 12px 14px 14px;
   white-space: nowrap;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  transition: background-color var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+  transition: color var(--transition-fast);
 }
 
 .tab-btn:hover {
-  background: #f5f7ff;
   color: var(--color-primary);
 }
 
 .tab-btn.active {
-  background: #fff;
-  border-color: #d7dcff;
   color: var(--color-primary);
   font-weight: 700;
+}
+
+.tab-btn.active::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--color-primary);
 }
 </style>

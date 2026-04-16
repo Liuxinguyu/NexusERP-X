@@ -2,33 +2,37 @@
   <aside class="app-sidebar">
     <div class="brand">
       <div class="logo">N</div>
-      <div class="brand-text">
-        <div class="title">NexusERP</div>
-        <div class="sub">Linear Style Console</div>
-      </div>
     </div>
 
-    <div class="nav">
-      <button
-        class="nav-item"
-        :class="{ active: currentPath === '/dashboard' }"
-        @click="$emit('navigate', '/dashboard')"
-      >
-        <el-icon><HomeFilled /></el-icon>
-        <span>工作台</span>
-      </button>
+    <nav class="nav" aria-label="一级模块">
+      <el-tooltip content="工作台" placement="right" :show-after="300">
+        <button
+          type="button"
+          class="nav-item"
+          :class="{ active: activeModule === '/dashboard' }"
+          @click="onDashboard"
+        >
+          <el-icon :size="22"><HomeFilled /></el-icon>
+        </button>
+      </el-tooltip>
 
-      <button
+      <el-tooltip
         v-for="module in modules"
         :key="module.base"
-        class="nav-item"
-        :class="{ active: module.base === activeModuleBase }"
-        @click="$emit('navigate', module.firstPath)"
+        :content="module.label"
+        placement="right"
+        :show-after="300"
       >
-        <el-icon><component :is="module.icon || 'Menu'" /></el-icon>
-        <span>{{ module.label }}</span>
-      </button>
-    </div>
+        <button
+          type="button"
+          class="nav-item"
+          :class="{ active: module.base === activeModule }"
+          @click="onSelectModule(module.base)"
+        >
+          <el-icon :size="22"><component :is="module.icon || 'Menu'" /></el-icon>
+        </button>
+      </el-tooltip>
+    </nav>
   </aside>
 </template>
 
@@ -38,40 +42,39 @@ import type { UserMenuNode } from '@/api/auth'
 
 const props = defineProps<{
   menus: UserMenuNode[]
-  currentPath: string
-  activeModuleBase: string
+  activeModule: string
 }>()
 
-defineEmits<{
-  (e: 'navigate', path: string): void
+const emit = defineEmits<{
+  (e: 'select-module', base: string): void
+  (e: 'select-dashboard'): void
 }>()
-
-type ModuleItem = { base: string; label: string; icon: string; firstPath: string }
 
 function normalizePath(path?: string): string {
   if (!path) return ''
   return path.startsWith('/') ? path : `/${path}`
 }
 
-function findFirstLeafPath(node: UserMenuNode): string {
-  if (node.component) return normalizePath(node.fullPath || node.path) || '/dashboard'
-  for (const c of node.children || []) {
-    const leaf = findFirstLeafPath(c)
-    if (leaf) return leaf
-  }
-  return normalizePath(node.fullPath || node.path) || '/dashboard'
+function onDashboard() {
+  emit('select-dashboard')
 }
+
+function onSelectModule(base: string) {
+  emit('select-module', base)
+}
+
+type ModuleItem = { base: string; label: string; icon: string }
 
 const modules = computed<ModuleItem[]>(() => {
   const out: ModuleItem[] = []
   for (const m of props.menus || []) {
-    const base = normalizePath((m.fullPath || m.path || '').split('/').filter(Boolean)[0] || '')
+    const seg = (m.fullPath || m.path || '').split('/').filter(Boolean)[0] || ''
+    const base = normalizePath(seg)
     if (!base || base === '/dashboard') continue
     out.push({
       base,
       label: m.menuName,
       icon: m.icon || 'Menu',
-      firstPath: findFirstLeafPath(m),
     })
   }
   return out
@@ -81,19 +84,20 @@ const modules = computed<ModuleItem[]>(() => {
 <style scoped>
 .app-sidebar {
   width: var(--sidebar-width);
+  flex-shrink: 0;
   border-right: 1px solid var(--sidebar-border);
   background: var(--sidebar-bg);
   display: flex;
   flex-direction: column;
-  padding: 20px 16px;
-  gap: 24px;
+  align-items: center;
+  padding: 16px 0 24px;
+  gap: 20px;
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 0 4px;
+  justify-content: center;
 }
 
 .logo {
@@ -106,39 +110,29 @@ const modules = computed<ModuleItem[]>(() => {
   align-items: center;
   justify-content: center;
   font-weight: 800;
-}
-
-.title {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.sub {
-  font-size: 12px;
-  color: var(--text-muted);
+  font-size: 16px;
 }
 
 .nav {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  width: 100%;
 }
 
 .nav-item {
-  width: 100%;
+  width: 48px;
+  height: 48px;
   border: none;
   background: transparent;
   color: var(--sidebar-text-muted);
   border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 14px 14px;
+  justify-content: center;
   cursor: pointer;
-  font-size: 14px;
-  font-weight: 600;
-  text-align: left;
   transition: background-color var(--transition-fast), color var(--transition-fast);
 }
 
@@ -150,6 +144,5 @@ const modules = computed<ModuleItem[]>(() => {
 .nav-item.active {
   background: var(--sidebar-active-bg);
   color: var(--sidebar-active-text);
-  font-weight: 700;
 }
 </style>

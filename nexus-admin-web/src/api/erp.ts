@@ -32,6 +32,8 @@ export interface ErpCustomer {
   contactPhone: string
   level: string
   creditLimit: number
+  /** 0 停用 1 正常（若后端未返回则前端不展示枚举） */
+  status?: number
 }
 
 export interface ErpSupplier {

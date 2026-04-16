@@ -2,9 +2,9 @@
   <div class="layout-root">
     <AppSidebar
       :menus="userStore.menus"
-      :current-path="route.path"
-      :active-module-base="currentModuleBase"
-      @navigate="navigateTo"
+      :active-module="appStore.activeModule"
+      @select-dashboard="handleSelectDashboard"
+      @select-module="handleSelectModule"
     />
 
     <div class="layout-main">
@@ -22,7 +22,7 @@
       <SubTabs
         :menus="userStore.menus"
         :current-path="route.path"
-        :current-module-base="currentModuleBase"
+        :current-module="appStore.activeModule"
         @navigate="navigateTo"
       />
 
@@ -60,13 +60,11 @@ function resolveModuleBase(path: string): string {
   return `/${parts[0]}`
 }
 
-const currentModuleBase = computed(() => resolveModuleBase(route.path))
-
 const currentModuleTitle = computed(() => {
-  if (currentModuleBase.value === '/dashboard') return '工作台'
+  if (appStore.activeModule === '/dashboard') return '工作台'
   const matched = (userStore.menus || []).find((m) => {
     const root = (m.fullPath || m.path || '').split('/').filter(Boolean)[0]
-    return `/${root}` === currentModuleBase.value
+    return `/${root}` === appStore.activeModule
   })
   return matched?.menuName || '业务中心'
 })
@@ -76,6 +74,29 @@ function navigateTo(path: string) {
   router.push(path)
 }
 
+function handleSelectDashboard() {
+  appStore.setActiveModule('/dashboard')
+  router.push('/dashboard')
+}
+
+function handleSelectModule(base: string) {
+  appStore.setActiveModule(base)
+}
+
+function syncFromRoute(path: string) {
+  const mod = resolveModuleBase(path)
+  appStore.setActiveModule(mod)
+  appStore.setActiveTabPath(path)
+}
+
+watch(
+  () => route.path,
+  (path) => {
+    syncFromRoute(path)
+  },
+  { immediate: true }
+)
+
 async function handleSwitchShop(shopId: number) {
   try {
     await userStore.switchShop(shopId)
@@ -84,15 +105,6 @@ async function handleSwitchShop(shopId: number) {
     ElMessage.error('切换失败')
   }
 }
-
-watch(
-  () => route.path,
-  (path) => {
-    appStore.setActiveModuleBase(resolveModuleBase(path))
-    appStore.setActiveTabPath(path)
-  },
-  { immediate: true }
-)
 
 onMounted(async () => {
   if (userStore.getToken() && !userStore.userInfo) {

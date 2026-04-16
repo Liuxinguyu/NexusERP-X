@@ -19,7 +19,7 @@
   --color-danger: #dc2626;
 
   /* Layout */
-  --sidebar-width: 268px;
+  --sidebar-width: 72px;
   --header-height: 64px;
   --header-bg: rgba(255, 255, 255, 0.84);
   --header-border: #e9edf5;
@@ -61,6 +61,7 @@
 
   /* Shadow */
   --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --shadow-lg: 0 18px 40px rgba(15, 23, 42, 0.12);
 
   /* Ring */
   --ring-subtle: 0 0 0 1px var(--border-color);
@@ -70,7 +71,7 @@
 
   /* Element Plus token overrides */
   --el-color-primary: var(--color-primary);
-  --el-border-radius-base: var(--radius-sm);
+  --el-border-radius-base: 12px;
   --el-border-radius-small: 10px;
   --el-border-radius-round: 999px;
   --el-border-color: var(--border-color);

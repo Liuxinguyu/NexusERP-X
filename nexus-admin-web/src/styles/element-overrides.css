@@ -24,23 +24,21 @@
 .el-table td.el-table__cell {
   border-right: none !important;
   border-left: none !important;
+  padding: 16px 0 !important;
 }
 
 .el-table th.el-table__cell {
   background: transparent !important;
+  background-color: transparent !important;
   color: var(--text-secondary);
   font-weight: 600;
   font-size: 13px;
   border-bottom: 1px solid var(--border-color) !important;
-  padding-top: 16px !important;
-  padding-bottom: 16px !important;
 }
 
 .el-table td.el-table__cell {
   color: var(--text-primary);
   border-bottom: 1px solid var(--border-color-soft) !important;
-  padding-top: 16px !important;
-  padding-bottom: 16px !important;
 }
 
 .el-table .cell {
@@ -105,7 +103,7 @@
 .el-select__wrapper,
 .el-textarea__inner {
   border-radius: 12px !important;
-  border: 1px solid var(--border-color) !important;
+  border: 1px solid #e2e8f0 !important;
   background: #fff !important;
   box-shadow: none !important;
 }
@@ -121,4 +119,26 @@
 .el-select__wrapper:hover,
 .el-textarea__inner:hover {
   border-color: var(--slate-300) !important;
+}
+
+/* dialog */
+.el-dialog {
+  border-radius: 24px !important;
+  box-shadow: var(--shadow-lg) !important;
+  overflow: hidden;
+}
+
+.el-dialog__header {
+  border-bottom: none !important;
+  margin-right: 0 !important;
+}
+
+.el-dialog__footer {
+  border-top: none !important;
+}
+
+/* tags — minimal radius */
+.el-tag {
+  border-radius: 12px !important;
+  font-weight: 600;
 }
