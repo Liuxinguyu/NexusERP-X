@@ -1,151 +1,96 @@
 <template>
   <div class="page-container">
-    <!-- 表格 -->
-    <el-card class="table-card" shadow="never">
-      <template #header>
-        <div class="card-header"><span>审批中心</span></div>
-      </template>
-      <el-tabs v-model="activeTab">
-        <el-tab-pane label="待我审批" name="pending" />
-        <el-tab-pane label="我已审批" name="processed" />
+    <div class="approval-tabs">
+      <el-tabs v-model="activeTab" @tab-change="handleTabChange">
+        <el-tab-pane label="待我处理" name="pending" />
+        <el-tab-pane label="我已处理" name="processed" />
       </el-tabs>
+    </div>
 
-      <el-table :data="tableData" stripe v-loading="loading">
-        <el-table-column prop="bizType" label="业务类型" width="120" />
-        <el-table-column prop="bizId" label="业务ID" width="100" />
-        <el-table-column prop="title" label="标题" min-width="200" show-overflow-tooltip />
-        <el-table-column prop="applicantUserName" label="申请人" width="120" />
-        <el-table-column prop="createTime" label="申请时间" width="160" />
-        <el-table-column label="状态" width="100" align="center">
+    <NexusTableCard
+      v-model:current="queryParams.current"
+      v-model:size="queryParams.size"
+      :loading="loading"
+      :total="total"
+      @pagination-change="loadData"
+    >
+      <el-table :data="tableData" height="100%">
+        <el-table-column prop="bizType" label="业务类型" width="140" />
+        <el-table-column prop="title" label="标题" min-width="260" show-overflow-tooltip />
+        <el-table-column prop="applicantUserName" label="申请人" width="140" />
+        <el-table-column prop="createTime" label="申请时间" min-width="180" />
+        <el-table-column label="状态" width="120" align="center">
           <template #default="{ row }">
-            <el-tag :type="statusTagType(row.status)" size="small">
-              {{ statusLabel(row.status) }}
-            </el-tag>
+            <el-tag :type="statusTagType(row.status)" effect="light">{{ statusLabel(row.status) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="120" fixed="right" align="center">
+        <el-table-column label="操作" width="160" fixed="right">
           <template #default="{ row }">
             <template v-if="activeTab === 'pending'">
-              <el-button link type="primary" size="small" @click="openApproveDialog(row)">
-                审批
-              </el-button>
+              <el-button type="primary" link @click="handleApprove(row)">通过</el-button>
+              <el-button type="danger" link @click="handleReject(row)">驳回</el-button>
             </template>
+            <span v-else class="muted-text">—</span>
           </template>
         </el-table-column>
       </el-table>
-      <RequestErrorState v-if="errorMsg && !loading" :description="errorMsg" @retry="loadData" />
-      <div class="pagination-wrap">
-        <el-pagination
-          v-model:current-page="pagination.current"
-          v-model:page-size="pagination.size"
-          :total="pagination.total"
-          :page-sizes="[10, 20, 50]"
-          layout="total, sizes, prev, pager, next"
-          @size-change="loadData"
-          @current-change="loadData"
-        />
-      </div>
-    </el-card>
+    </NexusTableCard>
 
-    <!-- 审批弹窗 -->
-    <el-dialog v-model="dialogVisible" title="审批" width="520px" destroy-on-close>
-      <el-form :model="approveForm" label-width="90px">
-        <el-form-item label="审批结果">
-          <el-radio-group v-model="approveForm.approved">
-            <el-radio :value="true">批准</el-radio>
-            <el-radio :value="false">拒绝</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="审批意见">
-          <el-input
-            v-model="approveForm.comment"
-            type="textarea"
-            :rows="4"
-            placeholder="请输入审批意见（可选）"
-          />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submitLoading" @click="handleSubmit">提交</el-button>
-      </template>
-    </el-dialog>
+    <RequestErrorState v-if="errorMsg && !loading" :description="errorMsg" @retry="loadData" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch, onMounted } from 'vue'
+import { reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { oaApi, type OaApprovalTask } from '@/api/oa'
-import { APPROVAL_TASK_STATUS } from '@/constants/status'
+import NexusTableCard from '@/components/NexusTableCard/index.vue'
 import RequestErrorState from '@/components/RequestErrorState.vue'
 
-const activeTab = ref('pending')
-
-const tableData = ref<OaApprovalTask[]>([])
+const activeTab = ref<'pending' | 'processed'>('pending')
 const loading = ref(false)
+const total = ref(0)
 const errorMsg = ref('')
+const tableData = ref<OaApprovalTask[]>([])
 
-const pagination = reactive({ current: 1, size: 10, total: 0 })
-
-const dialogVisible = ref(false)
-const submitLoading = ref(false)
-const currentRow = ref<OaApprovalTask | null>(null)
-
-const approveForm = reactive({ approved: true as boolean, comment: '' })
+const queryParams = reactive({
+  current: 1,
+  size: 10,
+})
 
 function statusLabel(status?: number) {
   const map: Record<number, string> = {
-    [APPROVAL_TASK_STATUS.PENDING]: '待审批',
-    [APPROVAL_TASK_STATUS.APPROVED]: '已批准',
-    [APPROVAL_TASK_STATUS.REJECTED]: '已拒绝',
+    0: '待处理',
+    1: '已通过',
+    2: '已驳回',
   }
-  return map[status ?? -1] ?? '未知'
+  return map[status ?? 99] || '未知'
 }
 
 function statusTagType(status?: number): 'warning' | 'success' | 'danger' | 'info' {
   const map: Record<number, 'warning' | 'success' | 'danger' | 'info'> = {
-    [APPROVAL_TASK_STATUS.PENDING]: 'warning',
-    [APPROVAL_TASK_STATUS.APPROVED]: 'success',
-    [APPROVAL_TASK_STATUS.REJECTED]: 'danger',
+    0: 'warning',
+    1: 'success',
+    2: 'danger',
   }
-  return map[status ?? -1] ?? 'info'
-}
-
-function openApproveDialog(row: OaApprovalTask) {
-  currentRow.value = row
-  approveForm.approved = true
-  approveForm.comment = ''
-  dialogVisible.value = true
-}
-
-async function handleSubmit() {
-  if (!currentRow.value) return
-  submitLoading.value = true
-  try {
-    if (approveForm.approved) {
-      await oaApi.approveTask(currentRow.value.id, approveForm.comment)
-      ElMessage.success('审批已通过')
-    } else {
-      await oaApi.rejectTask(currentRow.value.id, approveForm.comment)
-      ElMessage.success('已拒绝')
-    }
-    dialogVisible.value = false
-    loadData()
-  } catch {} finally {
-    submitLoading.value = false
-  }
+  return map[status ?? 99] || 'info'
 }
 
 async function loadData() {
   loading.value = true
   errorMsg.value = ''
   try {
-    const res = activeTab.value === 'pending'
-      ? await oaApi.getMyApprove(pagination.current, pagination.size)
-      : await oaApi.getMyApply(pagination.current, pagination.size)
-    tableData.value = res.records || res.list || []
-    pagination.total = res.total
+    const res = await oaApi.getApprovalPage(
+      {
+        current: queryParams.current,
+        size: queryParams.size,
+      },
+      activeTab.value
+    )
+    tableData.value = (res.records ?? res.list ?? []) as OaApprovalTask[]
+    total.value = res.total ?? 0
+    if (res.current != null) queryParams.current = Number(res.current)
+    if (res.size != null) queryParams.size = Number(res.size)
   } catch {
     tableData.value = []
     errorMsg.value = '审批任务列表加载失败'
@@ -154,17 +99,67 @@ async function loadData() {
   }
 }
 
-watch(activeTab, () => {
-  pagination.current = 1
+function handleTabChange() {
+  queryParams.current = 1
   loadData()
-})
+}
 
-onMounted(() => loadData())
+async function handleApprove(row: OaApprovalTask) {
+  try {
+    await ElMessageBox.confirm('确认通过该审批任务吗？', '提示', { type: 'warning' })
+    await oaApi.approveTask(row.taskId ?? row.id, { approved: true, opinion: '同意' })
+    ElMessage.success('审批已通过')
+    loadData()
+  } catch {}
+}
+
+async function handleReject(row: OaApprovalTask) {
+  try {
+    const { value } = await ElMessageBox.prompt('请输入驳回原因', '驳回申请', {
+      confirmButtonText: '提交',
+      cancelButtonText: '取消',
+      inputPlaceholder: '请填写驳回原因',
+      inputValidator: (input) => (input?.trim() ? true : '请输入驳回原因'),
+    })
+    await oaApi.approveTask(row.taskId ?? row.id, { approved: false, opinion: value.trim() })
+    ElMessage.success('已驳回')
+    loadData()
+  } catch {}
+}
+
+loadData()
 </script>
 
 <style scoped>
-.page-container { padding: 16px; }
-.table-card { border-radius: 8px; }
-.card-header { display: flex; justify-content: space-between; align-items: center; }
-.pagination-wrap { display: flex; justify-content: flex-end; margin-top: 16px; }
+.approval-tabs {
+  margin-bottom: 8px;
+}
+.approval-tabs :deep(.el-tabs__header) {
+  margin-bottom: 12px;
+}
+.approval-tabs :deep(.el-tabs__nav-wrap::after) {
+  display: none;
+}
+.muted-text {
+  color: #94a3b8;
+}
+.page-container :deep(.el-table) {
+  height: 100%;
+}
+.page-container :deep(.el-table th.el-table__cell) {
+  color: #64748b;
+  font-weight: 600;
+}
+.page-container :deep(.el-table td.el-table__cell),
+.page-container :deep(.el-table th.el-table__cell) {
+  border-right: none !important;
+}
+.page-container :deep(.el-table--border::after),
+.page-container :deep(.el-table--group::after),
+.page-container :deep(.el-table::before) {
+  display: none;
+}
+.page-container :deep(.el-table tr td.el-table__cell) {
+  border-bottom: 1px solid #f1f5f9;
+}
 </style>
