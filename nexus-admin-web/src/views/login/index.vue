@@ -1,79 +1,47 @@
 <template>
   <div class="login-page">
-    <!-- 左侧品牌区 -->
-    <div class="login-brand">
-      <div class="brand-content">
-        <div class="brand-logo">
-          <el-icon class="logo-icon"><Monitor /></el-icon>
-          <span class="logo-text">NexusERP</span>
-        </div>
-        <h1 class="brand-title">企业级管理系统</h1>
-        <p class="brand-desc">集成 ERP / OA / 薪资管理的一体化企业云平台</p>
-        <div class="brand-features">
-          <div class="feature-item">
-            <el-icon><Check /></el-icon>
-            <span>多模块业务集成</span>
-          </div>
-          <div class="feature-item">
-            <el-icon><Check /></el-icon>
-            <span>灵活权限体系</span>
-          </div>
-          <div class="feature-item">
-            <el-icon><Check /></el-icon>
-            <span>实时数据看板</span>
-          </div>
-        </div>
-      </div>
-      <div class="brand-footer">
-        <span>© {{ new Date().getFullYear() }} NexusERP. All rights reserved.</span>
-      </div>
-    </div>
+    <div class="login-bg" aria-hidden="true" />
 
-    <!-- 右侧登录区 -->
-    <div class="login-form-area">
+    <div class="login-shell">
       <div class="login-card">
-        <div class="login-card-header">
-          <h2>登录账户</h2>
-          <p>请输入您的账号信息</p>
-        </div>
+        <header class="login-header">
+          <h1 class="brand">NexusERP-X</h1>
+          <p class="tagline">Welcome back. Please enter your details.</p>
+        </header>
 
         <el-form
           ref="formRef"
           :model="form"
           :rules="rules"
           class="login-form"
+          label-position="top"
           @submit.prevent="handleLogin"
-          size="large"
         >
-          <!-- 用户名 -->
-          <el-form-item prop="username">
-            <label class="form-label">用户名</label>
+          <el-form-item label="用户名" prop="username">
             <el-input
               v-model="form.username"
               placeholder="请输入用户名"
-              :prefix-icon="User"
               clearable
               autocomplete="username"
-            />
-          </el-form-item>
-
-          <!-- 密码 -->
-          <el-form-item prop="password">
-            <label class="form-label">密码</label>
-            <el-input
-              v-model="form.password"
-              type="password"
-              placeholder="请输入密码"
-              :prefix-icon="Lock"
-              show-password
-              autocomplete="current-password"
+              class="field-input"
               @keyup.enter="handleLogin"
             />
           </el-form-item>
 
-          <el-form-item prop="tenantId">
-            <label class="form-label">租户</label>
-            <el-select v-model="form.tenantId" placeholder="请选择租户">
+          <el-form-item label="密码" prop="password">
+            <el-input
+              v-model="form.password"
+              type="password"
+              placeholder="请输入密码"
+              show-password
+              autocomplete="current-password"
+              class="field-input"
+              @keyup.enter="handleLogin"
+            />
+          </el-form-item>
+
+          <el-form-item label="租户" prop="tenantId">
+            <el-select v-model="form.tenantId" placeholder="请选择租户" class="field-input field-select">
               <el-option
                 v-for="item in tenantOptions"
                 :key="item.value"
@@ -83,17 +51,14 @@
             </el-select>
           </el-form-item>
 
-          <!-- 验证码（后端启用时才显示） -->
-          <el-form-item v-if="captchaVisible" prop="captchaCode">
-            <label class="form-label">验证码</label>
+          <el-form-item v-if="captchaVisible" label="验证码" prop="captchaCode">
             <div class="captcha-row">
               <el-input
                 v-model="form.captchaCode"
-                placeholder="请输入验证码"
-                :prefix-icon="CircleCheck"
+                placeholder="验证码"
                 clearable
+                class="field-input captcha-input"
                 @keyup.enter="handleLogin"
-                style="flex: 1"
               />
               <el-image
                 :src="captchaImg"
@@ -105,29 +70,16 @@
             </div>
           </el-form-item>
 
-          <!-- 错误提示 -->
-          <div v-if="errorMsg" class="error-message">
-            <el-icon><CircleClose /></el-icon>
-            {{ errorMsg }}
-          </div>
+          <div v-if="errorMsg" class="error-banner">{{ errorMsg }}</div>
 
-          <!-- 登录按钮 -->
-          <el-form-item>
-            <el-button
-              type="primary"
-              :loading="loading"
-              class="login-btn"
-              @click="handleLogin"
-            >
-              {{ loading ? '登录中...' : '登 录' }}
+          <el-form-item class="submit-wrap">
+            <el-button type="primary" :loading="loading" class="submit-btn" @click="handleLogin">
+              {{ loading ? '登录中…' : '登录' }}
             </el-button>
           </el-form-item>
         </el-form>
 
-        <!-- 底部提示 -->
-        <div class="login-footer">
-          <span>默认账号：admin / admin</span>
-        </div>
+        <p class="login-footnote">默认账号：admin / admin</p>
       </div>
     </div>
   </div>
@@ -137,7 +89,6 @@
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { User, Lock, CircleCheck, CircleClose, Check, Monitor } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { authApi } from '@/api/auth'
 
@@ -161,9 +112,7 @@ const form = reactive({
   captchaKey: '',
 })
 
-const tenantOptions = [
-  { label: '默认租户（ID: 1）', value: 1 },
-]
+const tenantOptions = [{ label: '默认租户（ID: 1）', value: 1 }]
 
 const rules: FormRules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
@@ -177,7 +126,7 @@ async function refreshCaptcha() {
     captchaUuid.value = result.uuid
     captchaImg.value = result.img
     captchaVisible.value = true
-    ;(window as any).__NEXUS_CAPTCHA_UUID__ = result.uuid
+    ;(window as unknown as { __NEXUS_CAPTCHA_UUID__?: string }).__NEXUS_CAPTCHA_UUID__ = result.uuid
   } catch {
     captchaVisible.value = false
   }
@@ -208,8 +157,9 @@ async function handleLogin() {
     ElMessage.success('登录成功')
     const redirect = (route.query.redirect as string) || '/'
     router.push(redirect)
-  } catch (e: any) {
-    errorMsg.value = e.message || '登录失败，请检查用户名、密码和验证码'
+  } catch (e: unknown) {
+    const err = e as { message?: string }
+    errorMsg.value = err.message || '登录失败，请检查用户名、密码和验证码'
     if (String(errorMsg.value).includes('验证码')) {
       captchaVisible.value = true
       refreshCaptcha()
@@ -221,197 +171,142 @@ async function handleLogin() {
 </script>
 
 <style scoped>
-/* ---- Layout ---- */
 .login-page {
   min-height: 100vh;
   display: flex;
-}
-
-/* ---- Left Brand Panel ---- */
-.login-brand {
-  flex: 1;
-  background: var(--color-primary);
-  background-image: radial-gradient(ellipse at 30% 20%, #3d8fc7 0%, var(--color-primary) 60%);
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  padding: 60px 56px;
-  position: relative;
-  overflow: hidden;
-}
-
-.login-brand::before {
-  content: '';
-  position: absolute;
-  top: -50%;
-  right: -20%;
-  width: 600px;
-  height: 600px;
-  background: rgba(255,255,255,0.04);
-  border-radius: 50%;
-}
-
-.login-brand::after {
-  content: '';
-  position: absolute;
-  bottom: -30%;
-  left: -10%;
-  width: 400px;
-  height: 400px;
-  background: rgba(255,255,255,0.03);
-  border-radius: 50%;
-}
-
-.brand-content { position: relative; z-index: 1; }
-
-.brand-logo {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 48px;
-}
-
-.logo-icon { font-size: 32px; color: #fff; }
-.logo-text { font-size: 24px; font-weight: 700; color: #fff; letter-spacing: 1px; }
-
-.brand-title {
-  font-size: 32px;
-  font-weight: 700;
-  color: #fff;
-  margin-bottom: 12px;
-  line-height: 1.2;
-}
-
-.brand-desc {
-  font-size: 15px;
-  color: rgba(255,255,255,0.75);
-  margin-bottom: 48px;
-  line-height: 1.6;
-}
-
-.brand-features { display: flex; flex-direction: column; gap: 14px; }
-
-.feature-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 14px;
-  color: rgba(255,255,255,0.9);
-}
-
-.feature-item .el-icon {
-  color: rgba(255,255,255,0.7);
-  font-size: 14px;
-}
-
-.brand-footer {
-  font-size: 12px;
-  color: rgba(255,255,255,0.4);
-  position: relative;
-  z-index: 1;
-}
-
-/* ---- Right Form Panel ---- */
-.login-form-area {
-  width: 480px;
-  display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--page-bg);
-  padding: 40px 48px;
-  flex-shrink: 0;
+  position: relative;
+  padding: 32px 20px;
+}
+
+.login-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background: linear-gradient(165deg, #f8fafc 0%, #f1f5f9 45%, #eef2f7 100%);
+}
+
+.login-bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.09) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.09) 1px, transparent 1px);
+  background-size: 48px 48px;
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.login-shell {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 400px;
 }
 
 .login-card {
   width: 100%;
-  max-width: 380px;
+  background: #fff;
+  border-radius: 24px;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.05);
+  padding: 48px 40px;
 }
 
-.login-card-header {
+.login-header {
   margin-bottom: 32px;
 }
 
-.login-card-header h2 {
-  font-size: 22px;
-  font-weight: 700;
+.brand {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
   color: var(--text-primary);
-  margin-bottom: 6px;
+  line-height: 1.2;
 }
 
-.login-card-header p {
-  font-size: 13px;
-  color: var(--text-secondary);
+.tagline {
+  margin: 10px 0 0;
+  font-size: 14px;
+  color: var(--text-muted);
+  line-height: 1.5;
 }
 
-/* ---- Form ---- */
-.login-form { margin-top: 0; }
+.login-form :deep(.el-form-item__label) {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+  margin-bottom: 6px !important;
+  padding: 0 !important;
+  line-height: 1.3;
+}
 
-.form-label {
-  display: block;
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  color: var(--text-secondary);
-  margin-bottom: 6px;
+.field-input :deep(.el-input__wrapper) {
+  min-height: 44px;
+  border-radius: 12px !important;
+}
+
+.field-select {
+  width: 100%;
+}
+
+.field-select :deep(.el-select__wrapper) {
+  min-height: 44px;
+  border-radius: 12px !important;
 }
 
 .captcha-row {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   gap: 10px;
 }
 
+.captcha-input {
+  flex: 1;
+  min-width: 0;
+}
+
 .captcha-img {
-  width: 120px;
-  height: 38px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--border-radius);
+  width: 112px;
+  height: 44px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
   cursor: pointer;
   flex-shrink: 0;
-  transition: border-color var(--transition-fast);
+  overflow: hidden;
+  background: #fff;
 }
 
-.captcha-img:hover { border-color: var(--color-primary); }
-
-.login-btn {
-  width: 100%;
-  height: 42px;
-  font-size: var(--font-size-base);
-  font-weight: 600;
-  letter-spacing: 2px;
-  background: var(--color-primary);
-  border-color: var(--color-primary);
-  border-radius: var(--border-radius);
-  margin-top: 8px;
-}
-
-.login-btn:hover {
-  background: var(--color-primary-light);
-  border-color: var(--color-primary-light);
-}
-
-.error-message {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+.error-banner {
   padding: 10px 12px;
-  background: var(--color-danger-bg);
-  border: 1px solid #f5c6cb;
-  border-radius: var(--border-radius);
+  margin-bottom: 8px;
+  border-radius: 12px;
+  font-size: 13px;
   color: var(--color-danger);
-  font-size: var(--font-size-sm);
-  margin-bottom: 4px;
+  background: rgba(220, 38, 38, 0.06);
+  border: 1px solid rgba(220, 38, 38, 0.15);
 }
 
-.login-footer {
+.submit-wrap {
+  margin-bottom: 0;
+}
+
+.submit-btn {
+  width: 100%;
+  height: 48px;
+  font-size: 15px;
+  font-weight: 700;
+  border-radius: 12px !important;
+  letter-spacing: 0.02em;
+}
+
+.login-footnote {
+  margin: 24px 0 0;
   text-align: center;
-  margin-top: 24px;
   font-size: 12px;
   color: var(--text-muted);
-}
-
-/* Responsive */
-@media (max-width: 900px) {
-  .login-brand { display: none; }
-  .login-form-area { width: 100%; }
 }
 </style>
