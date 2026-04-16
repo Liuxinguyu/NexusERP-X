@@ -1,4 +1,4 @@
-import request, { get, post, type Result } from './request'
+import request, { get, post, put, type Result } from './request'
 
 // 1. 登录参数 (绝对不要包含 tenantId)
 export interface LoginReq {
@@ -49,9 +49,9 @@ export interface CurrentUserInfo {
 }
 
 // 3. 接口导出
-export const login = (data: LoginReq) => request.post<Result<string>>('/api/v1/auth/login', data)
-export const getUserShops = () => request.get<Result<ShopTreeVO[]>>('/api/v1/auth/shops')
-export const switchShop = (shopId: number) => request.post<Result<string>>('/api/v1/auth/switch-shop', { shopId })
+export const login = (data: LoginReq) => request.post<Result<string>>('/auth/login', data)
+export const getUserShops = () => request.get<Result<ShopTreeVO[]>>('/auth/shops')
+export const switchShop = (shopId: number) => put<Result<string>>('/auth/switch-shop', { shopId })
 
 // 兼容已有模块
 export const authApi = {

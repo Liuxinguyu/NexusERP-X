@@ -172,15 +172,15 @@ export const oaApi = {
   createLeave: (data: LeaveUpsertDTO) => post<number>('/oa/leave-requests', data),
   updateLeave: (id: number, data: LeaveUpsertDTO) => put(`/oa/leave-requests/${id}`, data),
   deleteLeave: (id: number) => del(`/oa/leave-requests/${id}`),
-  submitLeave: (id: number) => post(`/oa/leave-requests/${id}/submit`),
+  submitLeave: (id: number) => put(`/oa/leave-requests/${id}/submit`),
   getLeaveRequestPage: (current: number, size: number, status?: number) =>
     get<PageResult<OaLeaveRequest>>('/oa/leave-requests/page', withPageParams(current, size, { status })),
   createLeaveRequest: (data: LeaveUpsertDTO) => post<number>('/oa/leave-requests', data),
   updateLeaveRequest: (id: number, data: LeaveUpsertDTO) => put(`/oa/leave-requests/${id}`, data),
   deleteLeaveRequest: (id: number) => del(`/oa/leave-requests/${id}`),
-  submitLeaveRequest: (id: number) => post(`/oa/leave-requests/${id}/submit`),
+  submitLeaveRequest: (id: number) => put(`/oa/leave-requests/${id}/submit`),
   approveLeaveRequest: (id: number, approved: boolean, opinion?: string) =>
-    post(`/oa/approval-center/${id}/approve`, { approved, opinion }),
+    put(`/oa/leave-requests/${id}/approve`, { approved, opinion }),
 
   // Attendance
   getAttendanceRules: () => get<OaAttendanceRule[]>('/oa/attendance/rules'),
@@ -210,17 +210,17 @@ export const oaApi = {
   // Approval Center
   getApprovalPage: (params: ApprovalPageQuery, scope: 'pending' | 'processed') =>
     get<ApprovalPageResult>(
-      scope === 'pending' ? '/oa/approval-center/my-approve/page' : '/oa/approval-center/my-apply/page',
+      scope === 'pending' ? '/oa/approval/tasks/my-approve' : '/oa/approval/tasks/my-apply',
       withPageParams(params.current, params.size, { ...params })
     ),
   getMyApply: (current: number, size: number, status?: number) =>
-    get<ApprovalPageResult>('/oa/approval-center/my-apply/page', withPageParams(current, size, { status })),
+    get<ApprovalPageResult>('/oa/approval/tasks/my-apply', withPageParams(current, size, { status })),
   getMyApprove: (current: number, size: number, status?: number) =>
-    get<ApprovalPageResult>('/oa/approval-center/my-approve/page', withPageParams(current, size, { status })),
+    get<ApprovalPageResult>('/oa/approval/tasks/my-approve', withPageParams(current, size, { status })),
   approveTask: (id: number, data: ApprovalActionDTO) =>
-    post(`/oa/approval-center/${id}/approve`, data),
+    post(`/oa/approval/tasks/${id}/approve`, data),
   rejectTask: (id: number, opinion?: string) =>
-    post(`/oa/approval-center/${id}/approve`, { approved: false, opinion }),
+    post(`/oa/approval/tasks/${id}/reject`, { approved: false, opinion }),
 
   // Tasks
   getTaskPage: (current: number, size: number, status?: number, assigneeId?: number) =>
