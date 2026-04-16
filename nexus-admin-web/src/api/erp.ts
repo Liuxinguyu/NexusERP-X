@@ -242,18 +242,26 @@ export interface PurchaseOrderPageQuery extends PageQuery {
   orderNo?: string
 }
 
-export interface PurchaseOrderCreateItemDTO {
+export interface PurchaseOrderUpsertItemDTO {
+  id?: number
   productId: number
   quantity: number
   unitPrice: number
 }
 
-export interface PurchaseOrderCreateDTO {
+export interface PurchaseOrderUpsertDTO {
+  id?: number
   supplierId: number
   warehouseId: number
   remark?: string
-  items: PurchaseOrderCreateItemDTO[]
+  status?: number
+  totalAmount?: number
+  items: PurchaseOrderUpsertItemDTO[]
 }
+
+export type PurchaseOrderCreateItemDTO = PurchaseOrderUpsertItemDTO
+
+export type PurchaseOrderCreateDTO = PurchaseOrderUpsertDTO
 
 export type ErpApiResult<T> = Result<T>
 
@@ -330,6 +338,7 @@ export const erpApi = {
   getPurchaseOrderPage: (params: PurchaseOrderPageQuery) =>
     get<PageResult<ErpPurchaseOrder>>('/erp/purchase-orders/page', withPageParams(params.current, params.size, params)),
   createPurchaseOrder: (data: PurchaseOrderCreateDTO) => post<number>('/erp/purchase-orders', data),
+  updatePurchaseOrder: (id: number, data: PurchaseOrderUpsertDTO) => put(`/erp/purchase-orders/${id}`, data),
   getPurchaseOrderDetail: (id: number) => get<ErpPurchaseOrder>(`/erp/purchase-orders/${id}`),
   getPurchaseOrderItems: (id: number) => get<PurchaseOrderItem[]>(`/erp/purchase-orders/${id}/items`),
   confirmInbound: (id: number) => put(`/erp/purchase-orders/${id}/confirm-inbound`),

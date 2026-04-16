@@ -14,6 +14,9 @@ export interface OaEmployee {
   phone: string
   status: number
   userId?: number
+  userName?: string
+  orgId?: number
+  orgName?: string
   directLeaderUserId?: number
 }
 
@@ -92,13 +95,47 @@ export interface PageResult<T> {
   size: number
 }
 
+export interface PageQuery {
+  current: number
+  size: number
+}
+
+export interface EmployeePageQuery extends PageQuery {
+  name?: string
+  empNo?: string
+  orgId?: number
+}
+
+export interface EmployeeUpsertDTO {
+  empNo: string
+  name: string
+  phone: string
+  position?: string
+  hireDate?: string
+  status: number
+  dept?: string
+  orgId?: number
+  orgName?: string
+  userId?: number
+  userName?: string
+  directLeaderUserId?: number
+}
+
+export interface EmployeeDetail extends OaEmployee {
+  orgId?: number
+  orgName?: string
+  userName?: string
+}
+
 export const oaApi = {
   // Employee
-  getEmployeePage: (current: number, size: number, name?: string, empNo?: string) =>
-    get<PageResult<OaEmployee>>('/oa/employees/page', withPageParams(current, size, { name, empNo })),
-  getEmployee: (id: number) => get<OaEmployee>(`/oa/employees/${id}`),
-  createEmployee: (data: any) => post<number>('/oa/employees', data),
-  updateEmployee: (id: number, data: any) => put(`/oa/employees/${id}`, data),
+  getEmployeePage: (params: EmployeePageQuery) =>
+    get<PageResult<OaEmployee>>('/oa/employees/page', withPageParams(params.current, params.size, { ...params })),
+  getEmployeeDetail: (id: number) => get<EmployeeDetail>(`/oa/employees/${id}`),
+  getEmployee: (id: number) => get<EmployeeDetail>(`/oa/employees/${id}`),
+  addEmployee: (data: EmployeeUpsertDTO) => post<number>('/oa/employees', data),
+  createEmployee: (data: EmployeeUpsertDTO) => post<number>('/oa/employees', data),
+  updateEmployee: (id: number, data: EmployeeUpsertDTO) => put(`/oa/employees/${id}`, data),
   deleteEmployee: (id: number) => del(`/oa/employees/${id}`),
 
   // Leave Request
