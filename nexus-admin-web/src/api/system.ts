@@ -132,6 +132,19 @@ export interface DashboardSummary {
   stockAlarmCount: number
 }
 
+export interface DictItemVO {
+  id?: number
+  typeCode?: string
+  itemLabel?: string
+  itemValue?: string | number
+  label?: string
+  value?: string | number
+  dictLabel?: string
+  dictValue?: string | number
+  name?: string
+  code?: string | number
+}
+
 export const systemApi = {
   // Auth / User
   getUserInfo: () => get<UserInfoResp>('/system/user/info'),
@@ -200,6 +213,8 @@ export const systemApi = {
   // Dict
   getDictTypes: () => get<any[]>('/system/dict-type/list'),
   getDictItems: (dictType: string) => get<any[]>('/system/dict-item/list-by-type', { dictType }),
+  getDictItemsByTypeCode: (typeCode: string) =>
+    get<DictItemVO[]>(`/system/dicts/items/${encodeURIComponent(typeCode)}`),
 
   // Message
   getUnreadCount: () => get<number>('/system/message/unread-count'),

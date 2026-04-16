@@ -1,34 +1,24 @@
-import { get, post, put } from './request'
+import request, { get, post, type Result } from './request'
 
+// 1. 登录参数 (绝对不要包含 tenantId)
 export interface LoginReq {
   username: string
   password: string
-  tenantId: number
-  captcha: string
-  captchaKey: string
+  captcha?: string
+  captchaKey?: string
 }
 
-export interface LoginResp {
-  accessToken: string
-  tokenType: string
-  tenantId: number
-  currentShopId: number
-  currentOrgId: number
-  dataScope: number
-  accessibleShopIds: number[]
-  accessibleOrgIds: number[]
+// 2. 店铺树节点
+export interface ShopTreeVO {
+  id: number
+  parentId: number
+  shopName: string
+  children?: ShopTreeVO[]
 }
 
 export interface CaptchaImage {
   uuid: string
   img: string
-}
-
-export interface ShopItem {
-  shopId: number
-  shopName: string
-  shopType: number
-  orgId: number
 }
 
 export interface UserMenuNode {
@@ -49,7 +39,6 @@ export interface CurrentUserInfo {
   userId: number
   username: string
   realName: string
-  tenantId: number
   orgId: number
   orgName: string
   shopId: number
@@ -59,11 +48,14 @@ export interface CurrentUserInfo {
   permissions: string[]
 }
 
+// 3. 接口导出
+export const login = (data: LoginReq) => request.post<Result<string>>('/api/v1/auth/login', data)
+export const getUserShops = () => request.get<Result<ShopTreeVO[]>>('/api/v1/auth/shops')
+export const switchShop = (shopId: number) => request.post<Result<string>>('/api/v1/auth/switch-shop', { shopId })
+
+// 兼容已有模块
 export const authApi = {
   getCaptchaImage: () => get<CaptchaImage>('/system/captcha/image'),
-  login: (data: LoginReq) => post<LoginResp>('/auth/login', data),
   getCurrentUserInfo: () => get<CurrentUserInfo>('/system/user/info'),
   logout: () => post<void>('/auth/logout'),
-  getShops: () => get<ShopItem[]>('/auth/shops'),
-  switchShop: (shopId: number) => put<LoginResp>('/auth/switch-shop', { shopId }),
 }

@@ -7,6 +7,9 @@
 body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  font-family: Inter, "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+  color: var(--text-primary);
+  background: var(--main-bg);
 }
 
 ::-webkit-scrollbar {
@@ -24,10 +27,13 @@ body {
 }
 
 .page-container {
+  flex: 1;
+  min-height: 0;
   padding: 24px;
   display: flex;
   flex-direction: column;
   gap: 24px;
+  overflow: hidden;
 }
 
 .search-card,
@@ -36,6 +42,13 @@ body {
   border-radius: var(--radius-md);
   background: #fff;
   box-shadow: var(--ring-subtle);
+}
+
+.table-card {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .toolbar {

@@ -41,6 +41,7 @@
 <script setup lang="ts">
 import { computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import type { RouteLocationNormalizedLoaded } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
 import { useAppStore } from '@/stores/app'
@@ -57,6 +58,12 @@ function resolveModuleBase(path: string): string {
   const parts = path.split('/').filter(Boolean)
   if (!parts.length || parts[0] === 'dashboard') return '/dashboard'
   return `/${parts[0]}`
+}
+
+function resolveModuleFromRoute(routeState: RouteLocationNormalizedLoaded): string {
+  const metaModulePath = routeState.meta?.modulePath
+  if (typeof metaModulePath === 'string' && metaModulePath) return metaModulePath
+  return resolveModuleBase(routeState.path)
 }
 
 const currentModuleTitle = computed(() => {
@@ -78,16 +85,16 @@ function handleSelectDashboard() {
   router.push('/dashboard')
 }
 
-function syncFromRoute(path: string) {
-  const mod = resolveModuleBase(path)
+function syncFromRoute() {
+  const mod = resolveModuleFromRoute(route)
   appStore.setActiveModule(mod)
-  appStore.setActiveTabPath(path)
+  appStore.setActiveTabPath(route.path)
 }
 
 watch(
-  () => route.path,
-  (path) => {
-    syncFromRoute(path)
+  () => route.fullPath,
+  () => {
+    syncFromRoute()
   },
   { immediate: true }
 )
@@ -128,14 +135,16 @@ onMounted(async () => {
 .content-shell {
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
   padding: 24px;
 }
 
 .content-surface {
-  min-height: 100%;
+  height: 100%;
+  min-height: 0;
   border-radius: var(--radius-md);
   background: rgba(255, 255, 255, 0.72);
+  overflow: hidden;
 }
 
 .page-fade-enter-active,
