@@ -1,7 +1,7 @@
-import { get, post, put, del } from './request'
+import { get, post, put, del, type Result } from './request'
 
-function withPageParams(current: number, size: number, extra?: Record<string, unknown>) {
-  return { current, size, page: current, pageNum: current, pageSize: size, ...(extra || {}) }
+function withPageParams(current: number, size: number, extra?: object) {
+  return { current, size, page: current, pageNum: current, pageSize: size, ...((extra || {}) as object) }
 }
 
 // Product
@@ -14,7 +14,7 @@ export interface ErpProductInfo {
   unit: string
   price: number
   stockQty: number
-  status: number
+  status: 0 | 1
 }
 
 export interface ErpProductCategory {
@@ -22,7 +22,8 @@ export interface ErpProductCategory {
   name: string
   parentId: number
   sortOrder?: number
-  status: number
+  status: 0 | 1
+  children?: ErpProductCategory[]
 }
 
 export interface ErpCustomer {
@@ -30,10 +31,10 @@ export interface ErpCustomer {
   name: string
   contactName: string
   contactPhone: string
+  address?: string
   level: string
   creditLimit: number
-  /** 0 停用 1 正常（若后端未返回则前端不展示枚举） */
-  status?: number
+  status: 0 | 1
 }
 
 export interface ErpSupplier {
@@ -42,26 +43,30 @@ export interface ErpSupplier {
   supplierName: string
   contactName: string
   phone: string
-  status: number
+  address?: string
+  status: 0 | 1
 }
 
 export interface ErpWarehouse {
   id: number
   warehouseCode: string
   warehouseName: string
-  managerName: string
-  contactInfo: string
-  address: string
+  managerName?: string
+  contactInfo?: string
+  address?: string
   status: number
 }
 
 export interface ErpStock {
-  id: number
+  id?: number
   productId: number
   productName: string
   warehouseId: number
   warehouseName: string
-  qty: number
+  qty?: number
+  quantity?: number
+  minStock?: number
+  maxStock?: number
 }
 
 export interface ErpSaleOrder {
@@ -70,19 +75,50 @@ export interface ErpSaleOrder {
   customerId: number
   customerName: string
   warehouseId: number
+  warehouseName?: string
   totalAmount: number
-  status: number
+  status: -1 | 0 | 1
   createTime?: string
+}
+
+export interface SaleOrderPageQuery extends PageQuery {
+  orderNo?: string
+  status?: -1 | 0 | 1
+}
+
+export interface SaleOrderItem {
+  id: number
+  saleOrderId: number
+  productId: number
+  productName?: string
+  quantity: number
+  unitPrice: number
+  amount?: number
 }
 
 export interface ErpPurchaseOrder {
   id: number
   orderNo: string
   supplierId: number
+  supplierName?: string
   warehouseId: number
+  warehouseName?: string
   totalAmount: number
   status: number
+  remark?: string
   createTime?: string
+}
+
+export interface PurchaseOrderItem {
+  id?: number
+  purchaseOrderId?: number
+  productId: number
+  productName?: string
+  quantity?: number
+  qty?: number
+  unitPrice?: number
+  price?: number
+  amount?: number
 }
 
 export interface FinReceivable {
@@ -115,19 +151,130 @@ export interface PageResult<T> {
   size: number
 }
 
+export interface PageQuery {
+  current: number
+  size: number
+}
+
+export interface CustomerPageQuery extends PageQuery {
+  name?: string
+  contactName?: string
+  contactPhone?: string
+}
+
+export interface CustomerUpsertDTO {
+  id?: number
+  name: string
+  contactName?: string
+  contactPhone?: string
+  address?: string
+  level?: string
+  creditLimit?: number
+  status: 0 | 1
+}
+
+export interface SupplierPageQuery extends PageQuery {
+  supplierName?: string
+  contactName?: string
+  phone?: string
+}
+
+export interface SupplierUpsertDTO {
+  id?: number
+  supplierCode: string
+  supplierName: string
+  contactName?: string
+  phone?: string
+  address?: string
+  status: 0 | 1
+}
+
+export interface ProductCategoryUpsertDTO {
+  id?: number
+  name: string
+  parentId: number
+  sortOrder?: number
+  status: 0 | 1
+}
+
+export interface ProductPageQuery extends PageQuery {
+  categoryId?: number
+  productName?: string
+  productCode?: string
+  status?: 0 | 1
+}
+
+export interface ProductUpsertDTO {
+  id?: number
+  productCode: string
+  productName: string
+  categoryId: number
+  specModel?: string
+  unit: string
+  price?: number
+  stockQty?: number
+  minStock?: number
+  description?: string
+  status: 0 | 1
+}
+
+export interface WarehousePageQuery extends PageQuery {
+  warehouseName?: string
+}
+
+export interface WarehouseUpsertDTO {
+  id?: number
+  warehouseCode: string
+  warehouseName: string
+  managerName?: string
+  contactInfo?: string
+  address?: string
+  status: number
+}
+
+export interface StockPageQuery extends PageQuery {
+  productId?: number
+  warehouseId?: number
+}
+
+export interface PurchaseOrderPageQuery extends PageQuery {
+  status?: number
+  orderNo?: string
+}
+
+export interface PurchaseOrderCreateItemDTO {
+  productId: number
+  quantity: number
+  unitPrice: number
+}
+
+export interface PurchaseOrderCreateDTO {
+  supplierId: number
+  warehouseId: number
+  remark?: string
+  items: PurchaseOrderCreateItemDTO[]
+}
+
+export type ErpApiResult<T> = Result<T>
+
 export const erpApi = {
   // Product Categories
-  getCategoryTree: () => get<any[]>('/erp/product-categories/tree'),
+  getProductCategoryTree: () => get<ErpProductCategory[]>('/erp/product-categories/tree'),
+  getCategoryTree: () => get<ErpProductCategory[]>('/erp/product-categories/tree'),
   getCategoryList: () => get<ErpProductCategory[]>('/erp/product-categories/list'),
-  createCategory: (data: any) => post<number>('/erp/product-categories', data),
-  updateCategory: (id: number, data: any) => put(`/erp/product-categories/${id}`, data),
+  addProductCategory: (data: ProductCategoryUpsertDTO) => post<number>('/erp/product-categories', data),
+  updateProductCategory: (id: number, data: ProductCategoryUpsertDTO) => put(`/erp/product-categories/${id}`, data),
+  createCategory: (data: ProductCategoryUpsertDTO) => post<number>('/erp/product-categories', data),
+  updateCategory: (id: number, data: ProductCategoryUpsertDTO) => put(`/erp/product-categories/${id}`, data),
   deleteCategory: (id: number) => del(`/erp/product-categories/${id}`),
 
   // Products
-  getProductPage: (params: any) =>
-    get<PageResult<any>>('/erp/products/page', params),
-  createProduct: (data: any) => post<number>('/erp/products', data),
-  updateProduct: (id: number, data: any) => put(`/erp/products/${id}`, data),
+  getProductPage: (params: ProductPageQuery) =>
+    get<PageResult<ErpProductInfo>>('/erp/products/page', withPageParams(params.current, params.size, params)),
+  addProduct: (data: ProductUpsertDTO) => post<number>('/erp/products', data),
+  createProduct: (data: ProductUpsertDTO) => post<number>('/erp/products', data),
+  updateProduct: (id: number, data: ProductUpsertDTO) => put(`/erp/products/${id}`, data),
+  getProductDetail: (id: number) => get<ErpProductInfo>('/erp/products/' + id),
   updateProductStatus: (id: number, status: number) =>
     put(`/erp/products/${id}/status`, { status }),
 
@@ -139,45 +286,62 @@ export const erpApi = {
   deleteProductInfo: (id: number) => del(`/erp/product-infos/${id}`),
 
   // Customers
-  getCustomerPage: (current: number, size: number, name?: string, contactPhone?: string) =>
-    get<PageResult<ErpCustomer>>('/erp/customers/page', withPageParams(current, size, { name, contactPhone })),
-  createCustomer: (data: any) => post<number>('/erp/customers', data),
-  updateCustomer: (id: number, data: any) => put(`/erp/customers/${id}`, data),
+  getCustomerPage: (params: CustomerPageQuery) =>
+    get<PageResult<ErpCustomer>>('/erp/customers/page', withPageParams(params.current, params.size, params)),
+  addCustomer: (data: CustomerUpsertDTO) => post<number>('/erp/customers', data),
+  createCustomer: (data: CustomerUpsertDTO) => post<number>('/erp/customers', data),
+  updateCustomer: (id: number, data: CustomerUpsertDTO) => put(`/erp/customers/${id}`, data),
 
   // Suppliers
-  getSupplierPage: (current: number, size: number, supplierName?: string) =>
-    get<PageResult<ErpSupplier>>('/erp/suppliers/page', withPageParams(current, size, { supplierName })),
-  createSupplier: (data: any) => post<number>('/erp/suppliers', data),
-  updateSupplier: (id: number, data: any) => put(`/erp/suppliers/${id}`, data),
+  getSupplierPage: (params: SupplierPageQuery) =>
+    get<PageResult<ErpSupplier>>('/erp/suppliers/page', withPageParams(params.current, params.size, params)),
+  addSupplier: (data: SupplierUpsertDTO) => post<number>('/erp/suppliers', data),
+  createSupplier: (data: SupplierUpsertDTO) => post<number>('/erp/suppliers', data),
+  updateSupplier: (id: number, data: SupplierUpsertDTO) => put(`/erp/suppliers/${id}`, data),
   deleteSupplier: (id: number) => del(`/erp/suppliers/${id}`),
 
   // Warehouses
-  getWarehousePage: (current: number, size: number, warehouseName?: string) =>
-    get<PageResult<ErpWarehouse>>('/erp/warehouses/page', withPageParams(current, size, { warehouseName })),
-  createWarehouse: (data: any) => post<number>('/erp/warehouses', data),
-  updateWarehouse: (id: number, data: any) => put(`/erp/warehouses/${id}`, data),
+  getWarehousePage: (paramsOrCurrent: WarehousePageQuery | number, size?: number, warehouseName?: string) =>
+    typeof paramsOrCurrent === 'number'
+      ? get<PageResult<ErpWarehouse>>('/erp/warehouses/page', withPageParams(paramsOrCurrent, size ?? 10, { warehouseName }))
+      : get<PageResult<ErpWarehouse>>('/erp/warehouses/page', withPageParams(paramsOrCurrent.current, paramsOrCurrent.size, paramsOrCurrent)),
+  addWarehouse: (data: WarehouseUpsertDTO) => post<number>('/erp/warehouses', data),
+  createWarehouse: (data: WarehouseUpsertDTO) => post<number>('/erp/warehouses', data),
+  updateWarehouse: (id: number, data: WarehouseUpsertDTO) => put(`/erp/warehouses/${id}`, data),
   deleteWarehouse: (id: number) => del(`/erp/warehouses/${id}`),
 
   // Stock
-  getStockPage: (current: number, size: number, productId?: number, warehouseId?: number) =>
-    get<PageResult<any>>('/erp/stocks/page', withPageParams(current, size, { productId, warehouseId })),
+  getStockPage: (paramsOrCurrent: StockPageQuery | number, size?: number, productId?: number, warehouseId?: number) =>
+    typeof paramsOrCurrent === 'number'
+      ? get<PageResult<ErpStock>>('/erp/stocks/page', withPageParams(paramsOrCurrent, size ?? 10, { productId, warehouseId }))
+      : get<PageResult<ErpStock>>('/erp/stocks/page', withPageParams(paramsOrCurrent.current, paramsOrCurrent.size, paramsOrCurrent)),
 
   // Sale Orders
-  getSaleOrderPage: (current: number, size: number, status?: number, orderNo?: string) =>
+  getSaleOrderPage: (params: SaleOrderPageQuery) =>
+    get<PageResult<ErpSaleOrder>>('/erp/sale-orders/page', withPageParams(params.current, params.size, params)),
+  getSaleOrderDetail: (id: number) => get<ErpSaleOrder>(`/erp/sale-orders/${id}`),
+  getSaleOrderItems: (id: number) => get<SaleOrderItem[]>(`/erp/sale-orders/${id}/items`),
+  // 兼容旧路径
+  getSaleOrderPageLegacy: (current: number, size: number, status?: number, orderNo?: string) =>
     get<PageResult<ErpSaleOrder>>('/erp/sale-order/page', withPageParams(current, size, { status, orderNo })),
-  getSaleOrderItems: (id: number) => get<any[]>('/erp/sale-order/' + id + '/items'),
+  getSaleOrderItemsLegacy: (id: number) => get<SaleOrderItem[]>('/erp/sale-order/' + id + '/items'),
+  addSaleOrder: (data: any) => post<number>('/erp/sale-orders', data),
+  updateSaleOrder: (id: number, data: any) => put(`/erp/sale-orders/${id}`, data),
   createSaleOrder: (data: any) => post<number>('/erp/sale-order', data),
   submitSaleOrder: (data: any) => post<number>('/erp/sale-order/submit', data),
-  submitDraftSaleOrder: (id: number) => put(`/erp/sale-order/${id}/submit`),
+  submitDraftSaleOrder: (id: number) => put(`/erp/sale-orders/${id}/submit`),
   approveSaleOrder: (id: number) => put(`/erp/sale-order/${id}/approve`),
   rejectSaleOrder: (id: number) => put(`/erp/sale-order/${id}/reject`),
   deleteSaleOrder: (id: number) => del(`/erp/sale-order/${id}`),
 
   // Purchase Orders
-  getPurchaseOrderPage: (current: number, size: number, status?: number) =>
-    get<PageResult<ErpPurchaseOrder>>('/erp/purchase-orders/page', withPageParams(current, size, { status })),
-  getPurchaseOrderItems: (id: number) => get<any[]>('/erp/purchase-orders/' + id + '/items'),
-  createPurchaseOrder: (data: any) => post<number>('/erp/purchase-orders', data),
+  getPurchaseOrderPage: (paramsOrCurrent: PurchaseOrderPageQuery | number, size?: number, status?: number) =>
+    typeof paramsOrCurrent === 'number'
+      ? get<PageResult<ErpPurchaseOrder>>('/erp/purchase-orders/page', withPageParams(paramsOrCurrent, size ?? 10, { status }))
+      : get<PageResult<ErpPurchaseOrder>>('/erp/purchase-orders/page', withPageParams(paramsOrCurrent.current, paramsOrCurrent.size, paramsOrCurrent)),
+  createPurchaseOrder: (data: PurchaseOrderCreateDTO) => post<number>('/erp/purchase-orders', data),
+  getPurchaseOrderDetail: (id: number) => get<ErpPurchaseOrder>(`/erp/purchase-orders/${id}`),
+  getPurchaseOrderItems: (id: number) => get<PurchaseOrderItem[]>(`/erp/purchase-orders/${id}/items`),
   confirmInbound: (id: number) => put(`/erp/purchase-orders/${id}/confirm-inbound`),
   submitPurchaseOrder: (id: number) => put(`/erp/purchase-orders/${id}/submit`),
   approvePurchaseOrder: (id: number) => put(`/erp/purchase-orders/${id}/approve`),
