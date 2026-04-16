@@ -51,5 +51,14 @@ nexus:
     local-dev-permit-all-api: false
     jwt:
       # 【安全警告】生产环境必须修改为随机密钥（32+字符），通过环境变量覆盖
-      secret: ${JWT_SECRET}
+      secret: ${JWT_SECRET:nexus-dev-jwt-secret-0123456789abcdef}
       expiration-seconds: 604800
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  health:
+    db:
+      enabled: false
