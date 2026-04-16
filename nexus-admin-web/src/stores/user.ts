@@ -108,7 +108,8 @@ export const useUserStore = defineStore('user', () => {
         }
         const importer = viewModules[viewKey] || viewModules[FALLBACK_VIEW_KEY]
         flat.push({
-          path: fullPath, // '/system/user' — 完整绝对路径
+          // 作为 Layout 的 children 挂载，避免进入独立页面时丢失侧边栏
+          path: fullPath.replace(/^\/+/, '') || `menu-${node.id}`,
           name,
           component: importer,
           meta: {
@@ -134,10 +135,10 @@ export const useUserStore = defineStore('user', () => {
         try { router.removeRoute(r.name) } catch { /* ignore */ }
       }
     }
-    // 全部平铺注册（每个路由用完整路径，如 /system/user）
+    // 全部注册到 Layout 子路由下，统一走布局壳
     const flatRoutes = buildFlatRoutes(menus.value)
     for (const r of flatRoutes) {
-      router.addRoute(r)
+      router.addRoute('Layout', r)
     }
   }
 

@@ -27,7 +27,7 @@
           type="button"
           class="nav-item"
           :class="{ active: module.base === activeModule }"
-          @click="onSelectModule(module.base)"
+          @click="handleModuleClick(module.base)"
         >
           <el-icon :size="22"><component :is="module.icon || 'Menu'" /></el-icon>
         </button>
@@ -38,17 +38,18 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useRouter } from 'vue-router'
 import type { UserMenuNode } from '@/api/auth'
+import { useAppStore } from '@/stores/app'
 
 const props = defineProps<{
   menus: UserMenuNode[]
   activeModule: string
 }>()
 
-const emit = defineEmits<{
-  (e: 'select-module', base: string): void
-  (e: 'select-dashboard'): void
-}>()
+const emit = defineEmits<{ (e: 'select-dashboard'): void }>()
+const appStore = useAppStore()
+const router = useRouter()
 
 function normalizePath(path?: string): string {
   if (!path) return ''
@@ -59,8 +60,11 @@ function onDashboard() {
   emit('select-dashboard')
 }
 
-function onSelectModule(base: string) {
-  emit('select-module', base)
+function handleModuleClick(base: string) {
+  appStore.setActiveModule(base, props.menus)
+  if (appStore.activeTabPath) {
+    router.push(appStore.activeTabPath)
+  }
 }
 
 type ModuleItem = { base: string; label: string; icon: string }

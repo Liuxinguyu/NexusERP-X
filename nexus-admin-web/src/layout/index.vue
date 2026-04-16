@@ -4,7 +4,6 @@
       :menus="userStore.menus"
       :active-module="appStore.activeModule"
       @select-dashboard="handleSelectDashboard"
-      @select-module="handleSelectModule"
     />
 
     <div class="layout-main">
@@ -77,10 +76,6 @@ function navigateTo(path: string) {
 function handleSelectDashboard() {
   appStore.setActiveModule('/dashboard')
   router.push('/dashboard')
-}
-
-function handleSelectModule(base: string) {
-  appStore.setActiveModule(base)
 }
 
 function syncFromRoute(path: string) {
