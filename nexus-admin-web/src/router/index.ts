@@ -20,6 +20,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/dashboard/index.vue'),
         meta: { title: '工作台', icon: 'HomeFilled' },
       },
+      {
+        path: 'erp/product-category',
+        name: 'ErpProductCategoryLocal',
+        component: () => import('@/views/erp/product-category/index.vue'),
+        meta: { title: '产品分类' },
+      },
       // 其他所有业务路由由 userStore.addAccessibleRoutes() 动态注册
     ],
   },
@@ -31,23 +37,45 @@ const router = createRouter({
   routes,
 })
 
-// 每次路由导航前确保用户信息已加载（刷新页面场景）
 router.beforeEach(async (to) => {
-  if (to.path === '/login') return
   const userStore = useUserStore()
-  // 直接读 localStorage，不依赖 store.token ref（logout 后 ref 为 null，但 localStorage 仍有值）
-  const storedToken = localStorage.getItem('nexus_token')
+  const storedToken = userStore.getToken() || localStorage.getItem('nexus_token')
+
+  if (to.path === '/login') {
+    if (!storedToken) return
+    try {
+      if (!userStore.isShopConfirmed) {
+        await userStore.fetchUserInfo()
+        await userStore.fetchUserShops()
+      }
+      return { path: '/' }
+    } catch {
+      try {
+        if (!userStore.shopTree.length) await userStore.fetchUserShops()
+      } catch {
+        localStorage.removeItem('nexus_token')
+      }
+      if (to.query.step === 'shop') return
+      return { path: '/login', query: { step: 'shop', redirect: String(to.query.redirect || '/') } }
+    }
+  }
+
   if (!storedToken) {
     return { path: '/login', query: { redirect: to.fullPath } }
   }
-  if (!userStore.profile) {
+
+  if (!userStore.isShopConfirmed) {
     try {
       await userStore.fetchUserInfo()
-      await userStore.fetchShops()
-      console.log('[guard] fetchUserInfo OK, menus:', userStore.menus.length)
-    } catch (e: any) {
-      console.log('[guard] fetchUserInfo FAILED:', e?.message || e)
-      return { path: '/login' }
+      await userStore.fetchUserShops()
+    } catch {
+      try {
+        if (!userStore.shopTree.length) await userStore.fetchUserShops()
+      } catch {
+        localStorage.removeItem('nexus_token')
+        return { path: '/login', query: { redirect: to.fullPath } }
+      }
+      return { path: '/login', query: { step: 'shop', redirect: to.fullPath } }
     }
   }
 })

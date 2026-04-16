@@ -1,344 +1,253 @@
 <template>
   <div class="page-container">
-    <el-tabs v-model="activeTab" class="erp-tabs">
-      <!-- 产品分类 -->
-      <el-tab-pane label="产品分类" name="category">
-        <el-card class="table-card" shadow="never">
-          <template #header>
-            <div class="toolbar">
-              <el-button type="primary" :icon="Plus" @click="openCategoryDialog()">新增分类</el-button>
-            </div>
-          </template>
-        <el-table :data="categoryList" stripe v-loading="categoryLoading" row-key="id">
-          <el-table-column prop="id" label="ID" width="80" />
-          <el-table-column prop="name" label="分类名称" />
-          <el-table-column prop="parentId" label="上级ID" width="100" />
-          <el-table-column prop="sortOrder" label="排序" width="100" />
-          <el-table-column label="状态" width="100">
-            <template #default="{ row }">
-              <el-tag :type="row.status === 1 ? 'success' : 'danger'" size="small">
-                {{ row.status === 1 ? '启用' : '禁用' }}
-              </el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="160" fixed="right">
-            <template #default="{ row }">
-              <el-button size="small" type="primary" link @click="openCategoryDialog(row)">编辑</el-button>
-              <el-button size="small" type="danger" link @click="handleDeleteCategory(row.id)">删除</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-        </el-card>
+    <NexusSearchCard>
+      <el-form :inline="true" class="search-form" @submit.prevent>
+        <el-form-item label="产品名称">
+          <el-input v-model="queryParams.productName" placeholder="请输入产品名称" clearable @keyup.enter="handleQuery" />
+        </el-form-item>
+        <el-form-item label="所属分类">
+          <el-tree-select v-model="queryParams.categoryId" :data="categoryTree" node-key="id" check-strictly clearable filterable :props="{ label: 'name', children: 'children' }" style="width: 260px" placeholder="请选择分类" />
+        </el-form-item>
+      </el-form>
+      <template #actions>
+        <div class="search-actions">
+          <el-button type="primary" :icon="Search" @click="handleQuery">查询</el-button>
+          <el-button :icon="RefreshRight" @click="resetQuery">重置</el-button>
+          <el-button type="primary" :icon="Plus" @click="handleAdd">新增</el-button>
+        </div>
+      </template>
+    </NexusSearchCard>
 
-        <!-- 分类对话框 -->
-        <el-dialog v-model="categoryDialogVisible" :title="categoryForm.id ? '编辑分类' : '新增分类'" width="500px" destroy-on-close>
-          <el-form :model="categoryForm" label-width="80px">
-            <el-form-item label="分类名称" required>
-              <el-input v-model="categoryForm.name" placeholder="请输入分类名称" />
-            </el-form-item>
-            <el-form-item label="上级ID">
-              <el-input-number v-model="categoryForm.parentId" :min="0" placeholder="上级分类ID，0表示顶级" style="width:100%" />
-            </el-form-item>
-            <el-form-item label="排序">
-              <el-input-number v-model="categoryForm.sortOrder" :min="0" style="width:100%" />
-            </el-form-item>
-            <el-form-item label="状态">
-              <el-radio-group v-model="categoryForm.status">
-                <el-radio :value="1">启用</el-radio>
-                <el-radio :value="0">禁用</el-radio>
-              </el-radio-group>
-            </el-form-item>
-          </el-form>
-          <template #footer>
-            <el-button @click="categoryDialogVisible = false">取消</el-button>
-            <el-button type="primary" :loading="categorySaving" @click="handleSaveCategory">保存</el-button>
+    <NexusTableCard v-model:current="queryParams.current" v-model:size="queryParams.size" :loading="loading" :total="total" @pagination-change="loadData">
+      <el-table :data="tableData" height="100%">
+        <el-table-column prop="productCode" label="产品编码" width="140" />
+        <el-table-column prop="productName" label="产品名称" min-width="180" />
+        <el-table-column label="分类名称" min-width="160">
+          <template #default="{ row }">{{ getCategoryName(row.categoryId) }}</template>
+        </el-table-column>
+        <el-table-column prop="unit" label="单位" width="100" />
+        <el-table-column prop="specModel" label="规格" min-width="160" show-overflow-tooltip />
+        <el-table-column prop="minStock" label="最小库存" width="110" />
+        <el-table-column label="操作" width="120" fixed="right">
+          <template #default="{ row }">
+            <el-button type="primary" link @click="handleEdit(row)">编辑</el-button>
           </template>
-        </el-dialog>
-      </el-tab-pane>
+        </el-table-column>
+      </el-table>
+    </NexusTableCard>
 
-      <!-- 产品信息 -->
-      <el-tab-pane label="产品信息" name="product">
-        <el-card class="search-card" shadow="never">
-          <div class="toolbar">
-            <el-input v-model="productSearch" placeholder="按产品名称搜索" :clearable="true" style="width:240px;margin-right:8px" />
-            <el-button type="primary" :icon="Plus" @click="openProductDialog()">新增产品</el-button>
-          </div>
-        </el-card>
-        <el-card class="table-card" shadow="never">
-        <el-table :data="productList" stripe v-loading="productLoading">
-          <el-table-column prop="id" label="ID" width="80" />
-          <el-table-column prop="productCode" label="产品编码" width="140" />
-          <el-table-column prop="productName" label="产品名称" />
-          <el-table-column prop="categoryId" label="分类ID" width="100" />
-          <el-table-column prop="specModel" label="规格型号" />
-          <el-table-column prop="unit" label="单位" width="80" />
-          <el-table-column prop="price" label="单价" width="100" align="right">
-            <template #default="{ row }">¥{{ row.price?.toFixed(2) }}</template>
-          </el-table-column>
-          <el-table-column prop="stockQty" label="库存" width="100" align="center" />
-          <el-table-column label="状态" width="100">
-            <template #default="{ row }">
-              <el-tag :type="row.status === 1 ? 'success' : 'danger'" size="small">
-                {{ row.status === 1 ? '启用' : '禁用' }}
-              </el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="200" fixed="right">
-            <template #default="{ row }">
-              <el-button size="small" type="primary" link @click="openProductDialog(row)">编辑</el-button>
-              <el-button size="small" type="warning" link @click="toggleProductStatus(row)">
-                {{ row.status === 1 ? '禁用' : '启用' }}
-              </el-button>
-              <el-button size="small" type="danger" link @click="handleDeleteProduct(row.id)">删除</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-        <el-pagination
-          v-model:current-page="productPage"
-          v-model:page-size="productSize"
-          :total="productTotal"
-          :page-sizes="[10,20,50]"
-          layout="total,sizes,prev,pager,next"
-          @current-change="loadProducts"
-          @size-change="loadProducts"
-          style="margin-top:16px"
-        />
-        </el-card>
-
-        <!-- 产品对话框 -->
-        <el-dialog v-model="productDialogVisible" :title="productForm.id ? '编辑产品' : '新增产品'" width="600px" destroy-on-close>
-          <el-form :model="productForm" label-width="100px">
-            <el-form-item label="产品编码" required>
-              <el-input v-model="productForm.productCode" placeholder="请输入产品编码" />
-            </el-form-item>
-            <el-form-item label="产品名称" required>
-              <el-input v-model="productForm.productName" placeholder="请输入产品名称" />
-            </el-form-item>
-            <el-form-item label="分类ID">
-              <el-input-number v-model="productForm.categoryId" :min="0" style="width:100%" />
-            </el-form-item>
-            <el-form-item label="规格型号">
-              <el-input v-model="productForm.specModel" placeholder="请输入规格型号" />
-            </el-form-item>
-            <el-form-item label="单位">
-              <el-input v-model="productForm.unit" placeholder="如：个/箱/件" style="width:200px" />
-            </el-form-item>
-            <el-form-item label="单价">
-              <el-input-number v-model="productForm.price" :min="0" :precision="2" style="width:200px" />
-            </el-form-item>
-            <el-form-item label="库存数量">
-              <el-input-number v-model="productForm.stockQty" :min="0" style="width:200px" />
-            </el-form-item>
-            <el-form-item label="状态">
-              <el-radio-group v-model="productForm.status">
-                <el-radio :value="1">启用</el-radio>
-                <el-radio :value="0">禁用</el-radio>
-              </el-radio-group>
-            </el-form-item>
-          </el-form>
-          <template #footer>
-            <el-button @click="productDialogVisible = false">取消</el-button>
-            <el-button type="primary" :loading="productSaving" @click="handleSaveProduct">保存</el-button>
-          </template>
-        </el-dialog>
-      </el-tab-pane>
-    </el-tabs>
+    <el-dialog v-model="dialogVisible" width="620px" destroy-on-close class="nexus-dialog">
+      <template #header>
+        <span class="dialog-title">{{ form.id ? '编辑产品' : '新增产品' }}</span>
+      </template>
+      <el-form ref="formRef" :model="form" :rules="rules" label-position="top">
+        <el-form-item label="产品编码" prop="productCode">
+          <el-input v-model="form.productCode" placeholder="请输入产品编码" />
+        </el-form-item>
+        <el-form-item label="产品名称" prop="productName">
+          <el-input v-model="form.productName" placeholder="请输入产品名称" />
+        </el-form-item>
+        <el-form-item label="分类" prop="categoryId">
+          <el-tree-select v-model="form.categoryId" :data="categoryTree" node-key="id" check-strictly filterable :props="{ label: 'name', children: 'children' }" placeholder="请选择分类" />
+        </el-form-item>
+        <el-form-item label="单位" prop="unit">
+          <el-input v-model="form.unit" placeholder="请输入单位" />
+        </el-form-item>
+        <el-form-item label="规格" prop="specModel">
+          <el-input v-model="form.specModel" placeholder="请输入规格" />
+        </el-form-item>
+        <el-form-item label="最小库存" prop="minStock">
+          <el-input-number v-model="form.minStock" :min="0" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="描述" prop="description">
+          <el-input v-model="form.description" type="textarea" :rows="4" class="desc-textarea" placeholder="请输入产品描述" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="dialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="saving" @click="handleSave">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus } from '@element-plus/icons-vue'
-import { erpApi } from '@/api/erp'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { ElMessage } from 'element-plus'
+import type { FormInstance } from 'element-plus'
+import { Plus, RefreshRight, Search } from '@element-plus/icons-vue'
+import { erpApi, type ErpProductCategory, type ErpProductInfo, type ProductUpsertDTO } from '@/api/erp'
+import NexusSearchCard from '@/components/NexusSearchCard/index.vue'
+import NexusTableCard from '@/components/NexusTableCard/index.vue'
 
-const activeTab = ref('category')
+const tableData = ref<ErpProductInfo[]>([])
+const categoryTree = ref<ErpProductCategory[]>([])
+const loading = ref(false)
+const dialogVisible = ref(false)
+const saving = ref(false)
+const total = ref(0)
 
-// ---- Category ----
-const categoryList = ref<any[]>([])
-const categoryLoading = ref(false)
-const categoryDialogVisible = ref(false)
-const categorySaving = ref(false)
-const categoryForm = reactive({
-  id: undefined as number | undefined,
-  name: '',
-  parentId: 0,
-  sortOrder: 0,
-  status: 1,
+const queryParams = reactive({
+  current: 1,
+  size: 10,
+  productName: '',
+  categoryId: undefined as number | undefined,
 })
 
-async function loadCategories() {
-  categoryLoading.value = true
-  try {
-    categoryList.value = await erpApi.getCategoryList()
-  } catch {
-    ElMessage.error('加载分类失败')
-  } finally {
-    categoryLoading.value = false
-  }
-}
-
-function openCategoryDialog(row?: any) {
-  if (row) {
-    Object.assign(categoryForm, {
-      id: row.id,
-      name: row.name,
-      parentId: row.parentId,
-      sortOrder: row.sortOrder ?? 0,
-      status: row.status,
-    })
-  } else {
-    Object.assign(categoryForm, { id: undefined, name: '', parentId: 0, sortOrder: 0, status: 1 })
-  }
-  categoryDialogVisible.value = true
-}
-
-async function handleSaveCategory() {
-  if (!categoryForm.name) {
-    ElMessage.warning('请输入分类名称')
-    return
-  }
-  categorySaving.value = true
-  try {
-    if (categoryForm.id) {
-      await erpApi.updateCategory(categoryForm.id, categoryForm)
-      ElMessage.success('更新成功')
-    } else {
-      await erpApi.createCategory(categoryForm)
-      ElMessage.success('创建成功')
-    }
-    categoryDialogVisible.value = false
-    loadCategories()
-  } catch {
-    ElMessage.error('保存失败')
-  } finally {
-    categorySaving.value = false
-  }
-}
-
-async function handleDeleteCategory(id: number) {
-  try {
-    await ElMessageBox.confirm('确认删除该分类?', '提示', { type: 'warning' })
-    await erpApi.deleteCategory(id)
-    ElMessage.success('删除成功')
-    loadCategories()
-  } catch {}
-}
-
-// ---- Product ----
-const productList = ref<any[]>([])
-const productLoading = ref(false)
-const productDialogVisible = ref(false)
-const productSaving = ref(false)
-const productSearch = ref('')
-const productPage = ref(1)
-const productSize = ref(10)
-const productTotal = ref(0)
-const productForm = reactive({
-  id: undefined as number | undefined,
+const form = reactive<ProductUpsertDTO>({
+  id: undefined,
   productCode: '',
   productName: '',
   categoryId: 0,
-  specModel: '',
   unit: '',
-  price: 0,
-  stockQty: 0,
+  specModel: '',
+  minStock: 0,
+  description: '',
   status: 1,
 })
+const formRef = ref<FormInstance>()
 
-async function loadProducts() {
-  productLoading.value = true
+const rules = {
+  productName: [{ required: true, message: '请输入产品名称', trigger: 'blur' }],
+  unit: [{ required: true, message: '请输入单位', trigger: 'blur' }],
+  categoryId: [{ required: true, message: '请选择分类', trigger: 'change' }],
+}
+
+const categoryNameMap = computed(() => {
+  const map = new Map<number, string>()
+  const loop = (nodes: ErpProductCategory[]) => {
+    nodes.forEach((node) => {
+      map.set(node.id, node.name)
+      if (node.children?.length) loop(node.children)
+    })
+  }
+  loop(categoryTree.value)
+  return map
+})
+
+function getCategoryName(categoryId: number) {
+  return categoryNameMap.value.get(categoryId) || '-'
+}
+
+async function loadCategoryTree() {
   try {
-    const res = await erpApi.getProductInfoPage(productPage.value, productSize.value, undefined, productSearch.value)
-    productList.value = res.records ?? res.list ?? []
-    productTotal.value = res.total
+    categoryTree.value = await erpApi.getProductCategoryTree()
+  } catch {
+    ElMessage.error('加载分类失败')
+  }
+}
+
+async function loadData() {
+  loading.value = true
+  try {
+    const res = await erpApi.getProductPage({
+      current: queryParams.current,
+      size: queryParams.size,
+      categoryId: queryParams.categoryId,
+      productName: queryParams.productName.trim() || undefined,
+    })
+    tableData.value = res.records ?? res.list ?? []
+    total.value = res.total ?? 0
+    if (res.current != null) queryParams.current = Number(res.current)
+    if (res.size != null) queryParams.size = Number(res.size)
   } catch {
     ElMessage.error('加载产品失败')
   } finally {
-    productLoading.value = false
+    loading.value = false
   }
 }
 
-function openProductDialog(row?: any) {
-  if (row) {
-    Object.assign(productForm, {
-      id: row.id,
-      productCode: row.productCode,
-      productName: row.productName,
-      categoryId: row.categoryId,
-      specModel: row.specModel,
-      unit: row.unit,
-      price: row.price,
-      stockQty: row.stockQty,
-      status: row.status,
-    })
-  } else {
-    Object.assign(productForm, {
-      id: undefined,
-      productCode: '',
-      productName: '',
-      categoryId: 0,
-      specModel: '',
-      unit: '',
-      price: 0,
-      stockQty: 0,
-      status: 1,
-    })
-  }
-  productDialogVisible.value = true
+function handleQuery() {
+  queryParams.current = 1
+  loadData()
 }
 
-async function handleSaveProduct() {
-  if (!productForm.productCode || !productForm.productName) {
-    ElMessage.warning('请填写产品编码和名称')
-    return
-  }
-  productSaving.value = true
+function resetQuery() {
+  queryParams.current = 1
+  queryParams.productName = ''
+  queryParams.categoryId = undefined
+  loadData()
+}
+
+function handleAdd() {
+  Object.assign(form, { id: undefined, productCode: '', productName: '', categoryId: 0, unit: '', specModel: '', minStock: 0, description: '', status: 1 })
+  dialogVisible.value = true
+}
+
+async function handleEdit(row: ErpProductInfo) {
+  Object.assign(form, {
+    id: row.id,
+    productCode: row.productCode,
+    productName: row.productName,
+    categoryId: row.categoryId,
+    unit: row.unit,
+    specModel: row.specModel || '',
+    minStock: (row as any).minStock || 0,
+    description: (row as any).description || '',
+    status: row.status,
+  })
   try {
-    if (productForm.id) {
-      await erpApi.updateProductInfo(productForm.id, productForm)
+    const detail = await erpApi.getProductDetail(row.id)
+    Object.assign(form, {
+      specModel: detail.specModel || '',
+      description: (detail as any).description || '',
+      minStock: (detail as any).minStock || form.minStock || 0,
+    })
+  } catch {}
+  dialogVisible.value = true
+}
+
+async function handleSave() {
+  const valid = await formRef.value?.validate().catch(() => false)
+  if (!valid) return
+  saving.value = true
+  try {
+    if (form.id) {
+      await erpApi.updateProduct(form.id, form)
       ElMessage.success('更新成功')
     } else {
-      await erpApi.createProductInfo(productForm)
+      await erpApi.addProduct(form)
       ElMessage.success('创建成功')
     }
-    productDialogVisible.value = false
-    loadProducts()
+    dialogVisible.value = false
+    loadData()
   } catch {
     ElMessage.error('保存失败')
   } finally {
-    productSaving.value = false
+    saving.value = false
   }
 }
 
-async function handleDeleteProduct(id: number) {
-  try {
-    await ElMessageBox.confirm('确认删除该产品?', '提示', { type: 'warning' })
-    await erpApi.deleteProductInfo(id)
-    ElMessage.success('删除成功')
-    loadProducts()
-  } catch {}
-}
-
-async function toggleProductStatus(row: any) {
-  const newStatus = row.status === 1 ? 0 : 1
-  try {
-    await erpApi.updateProductStatus(row.id, newStatus)
-    ElMessage.success(newStatus === 1 ? '已启用' : '已禁用')
-    loadProducts()
-  } catch {
-    ElMessage.error('操作失败')
-  }
-}
-
-onMounted(() => {
-  loadCategories()
-  loadProducts()
+onMounted(async () => {
+  await loadCategoryTree()
+  await loadData()
 })
 </script>
 
 <style scoped>
-.page-container { padding: 16px; }
-.toolbar { margin-bottom: 12px; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-.erp-tabs :deep(.el-tabs__header) { margin-bottom: 12px; }
+.search-form {
+  margin-bottom: 0;
+}
+.search-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.nexus-dialog :deep(.el-dialog) {
+  border-radius: 24px;
+}
+.dialog-title {
+  font-size: 16px;
+  font-weight: 700;
+}
+.desc-textarea :deep(.el-textarea__inner) {
+  resize: none;
+  min-height: 120px !important;
+}
+.page-container :deep(.el-input__wrapper.is-focus),
+.page-container :deep(.el-textarea__inner:focus),
+.page-container :deep(.el-select__wrapper.is-focused) {
+  box-shadow: 0 0 0 1px #6366f1 inset !important;
+  background: #fff !important;
+}
 </style>
