@@ -4,7 +4,8 @@ import router from '@/router'
 
 export interface Result<T> {
   code: number
-  msg: string
+  msg?: string
+  message?: string
   data: T
 }
 
@@ -98,8 +99,8 @@ async function refreshAccessToken(): Promise<string> {
   )
 
   const result = refreshResp.data
-  if (result.code !== 200 || !result.data?.accessToken) {
-    throw new Error(result.msg || 'Token 刷新失败')
+  if ((result.code !== 200 && result.code !== 0) || !result.data?.accessToken) {
+    throw new Error(result.msg || result.message || 'Token 刷新失败')
   }
   return result.data.accessToken
 }
@@ -161,10 +162,12 @@ request.interceptors.request.use(
 request.interceptors.response.use(
   (response: AxiosResponse<Result<any>>) => {
     const result = response.data
-    if (result.code === 200) return result.data
+    // 兼容后端不同约定：code=200 或 code=0 都视为成功
+    if (result.code === 200 || result.code === 0) return result.data
 
-    ElMessage.error(result.msg || '请求失败')
-    return Promise.reject(new Error(result.msg || '请求失败'))
+    const msg = result.msg || result.message || '请求失败'
+    ElMessage.error(msg)
+    return Promise.reject(new Error(msg))
   },
   async (error: AxiosError<Result<any>>) => {
     const originalConfig = error.config as RetryableRequestConfig | undefined
@@ -205,7 +208,7 @@ request.interceptors.response.use(
       }
     }
 
-    const backendMsg = error.response?.data?.msg
+    const backendMsg = error.response?.data?.msg || error.response?.data?.message
     ElMessage.error(backendMsg || error.message || '网络错误')
     return Promise.reject(error)
   }
