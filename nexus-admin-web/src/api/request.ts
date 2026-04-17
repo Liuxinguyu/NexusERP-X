@@ -22,10 +22,11 @@ interface RetryableRequestConfig extends InternalAxiosRequestConfig {
 }
 
 const TOKEN_KEY = 'nexus_token'
+const CURRENT_SHOP_KEY = 'nexus_current_shop_id'
 const REFRESH_PATH = '/auth/refresh'
 const REFRESH_AHEAD_MS = 5 * 60 * 1000
 const PROACTIVE_REFRESH_COOLDOWN_MS = 30 * 1000
-const AUTH_WHITELIST_PATHS = ['/auth/login', '/system/captcha/image', '/system/captcha/validate']
+const AUTH_WHITELIST_PATHS = ['/auth/login', '/auth/confirm-shop', '/system/captcha/image', '/system/captcha/validate']
 
 const request: AxiosInstance = axios.create({
   baseURL: '/api/v1',
@@ -47,6 +48,7 @@ function setStoredToken(token: string) {
 
 function clearStoredToken() {
   localStorage.removeItem(TOKEN_KEY)
+  localStorage.removeItem(CURRENT_SHOP_KEY)
 }
 
 function isAuthWhitelisted(url?: string): boolean {

@@ -25,6 +25,14 @@ public final class AuthDtos {
     }
 
     @Data
+    public static class ConfirmShopRequest implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        private String preAuthToken;
+        private Long shopId;
+    }
+
+    @Data
     public static class SwitchShopRequest implements Serializable {
         @Serial
         private static final long serialVersionUID = 1L;
@@ -39,6 +47,18 @@ public final class AuthDtos {
         private String shopName;
         private Integer shopType;
         private Long orgId;
+    }
+
+    @Data
+    public static class PreAuthLoginResponse implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        private String preAuthToken;
+        private Long tenantId;
+        private Long recommendedShopId;
+        private List<ShopItem> shops;
+        private long expiresInSeconds;
+        private boolean requiresShopSelection;
     }
 
     @Data

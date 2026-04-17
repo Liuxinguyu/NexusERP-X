@@ -21,6 +21,7 @@ public class NexusSecurityProperties {
             "/actuator/health",
             "/actuator/info",
             "/api/v1/auth/login",
+            "/api/v1/auth/confirm-shop",
             "/api/v1/system/captcha/**",
             "/error",
             "/doc.html",

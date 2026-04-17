@@ -1,12 +1,24 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { authApi, login, getUserShops, switchShop as switchShopApi, type LoginReq, type ShopTreeVO, type CurrentUserInfo, type UserMenuNode } from '@/api/auth'
+import { authApi, confirmShop as confirmShopApi, switchShop as switchShopApi } from '@/api/auth'
+import type {
+  LoginReq,
+  LoginResponse,
+  PreAuthLoginResponse,
+  ShopItem,
+  UserMenuNode,
+  CurrentUserInfo,
+} from '@/api/auth'
 import router from '@/router'
 
-// 唯一视图源：所有本地页面都从该 glob 结果中解析
+const TOKEN_KEY = 'nexus_token'
+const CURRENT_SHOP_KEY = 'nexus_current_shop_id'
+const SHOP_STEP_KEY = 'nexus_shop_step_ready'
+const PRE_AUTH_TOKEN_KEY = 'nexus_pre_auth_token'
+const PENDING_SHOPS_KEY = 'nexus_pending_shops'
+
 const viewModules = import.meta.glob('/src/views/**/index.vue')
 const FALLBACK_VIEW_KEY = '/src/views/route-fallback/index.vue'
-type ShopItem = { shopId: number; shopName: string }
 
 function normalizeMenuComponentToViewKey(component: string): string {
   const normalized = String(component || '').trim().replace(/^\/+/, '').replace(/\.vue$/, '')
@@ -19,141 +31,187 @@ function normalizeMenuComponentToViewKey(component: string): string {
 }
 
 export const useUserStore = defineStore('user', () => {
+  // 正式登录态
   const token = ref<string>('')
   const userInfo = ref<CurrentUserInfo | null>(null)
   const menus = ref<UserMenuNode[]>([])
   const permissions = ref<string[]>([])
   const currentShopId = ref<number | null>(null)
-  const shopTree = ref<ShopTreeVO[]>([])
   const shops = ref<ShopItem[]>([])
   const latestNotice = ref<string>('')
-
+  const profile = computed(() => userInfo.value?.profile ?? null)
+  const currentShop = computed(() => shops.value.find((s) => s.shopId === getCurrentShopIdFromLs()) ?? null)
   const isLoggedIn = computed(() => !!getToken())
-  const profile = computed(() => userInfo.value as any)
-  const isShopConfirmed = computed(() => !!userInfo.value && currentShopId.value !== null)
-  const currentShop = computed(() => shops.value.find((item) => item.shopId === currentShopId.value) || null)
 
-  function getToken(): string | null {
-    if (!token.value) {
-      token.value = localStorage.getItem('nexus_token') || ''
+  // ── 预登录态（仅存在于选店铺阶段）───────────────────────────
+  function getPreAuthToken(): string | null {
+    return sessionStorage.getItem(PRE_AUTH_TOKEN_KEY)
+  }
+
+  function setPreAuthData(preAuthToken: string, shopsList: ShopItem[]) {
+    sessionStorage.setItem(PRE_AUTH_TOKEN_KEY, preAuthToken)
+    sessionStorage.setItem(PRE_AUTH_TOKEN_KEY, preAuthToken)
+    try {
+      sessionStorage.setItem(PENDING_SHOPS_KEY, JSON.stringify(shopsList))
+    } catch { /* ignore */ }
+  }
+
+  function clearPreAuthData() {
+    sessionStorage.removeItem(PRE_AUTH_TOKEN_KEY)
+    sessionStorage.removeItem(PENDING_SHOPS_KEY)
+    sessionStorage.removeItem(SHOP_STEP_KEY)
+  }
+
+  function getPendingShops(): ShopItem[] {
+    try {
+      const raw = sessionStorage.getItem(PENDING_SHOPS_KEY)
+      if (!raw) return []
+      const parsed = JSON.parse(raw)
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
     }
+  }
+
+  // ── 正式 JWT ────────────────────────────────────────────────
+  function getToken(): string | null {
+    if (!token.value) token.value = localStorage.getItem(TOKEN_KEY) || ''
     return token.value || null
   }
 
-  function unwrapToken(payload: unknown): string {
-    if (typeof payload === 'string') return payload
-    if (payload && typeof payload === 'object') {
-      const candidate = payload as { data?: unknown; accessToken?: unknown }
-      if (typeof candidate.data === 'string') return candidate.data
-      if (typeof candidate.accessToken === 'string') return candidate.accessToken
-    }
-    return ''
+  function setToken(t: string) {
+    token.value = t
+    localStorage.setItem(TOKEN_KEY, t)
   }
 
-  // Action 1 - loginAccount(data: LoginReq)
-  async function loginAccount(req: LoginReq) {
-    const resp = await login(req)
-    const nextToken = unwrapToken(resp)
-    if (!nextToken) throw new Error('登录失败：未获取到 token')
-    token.value = nextToken
-    localStorage.setItem('nexus_token', nextToken)
+  function getCurrentShopIdFromLs(): number | null {
+    if (currentShopId.value !== null) return currentShopId.value
+    const raw = localStorage.getItem(CURRENT_SHOP_KEY)
+    if (!raw || raw === 'null' || raw === 'undefined') return null
+    const parsed = Number(raw)
+    if (!Number.isFinite(parsed)) return null
+    currentShopId.value = parsed
+    return parsed
+  }
+
+  function setCurrentShopId(shopId: number | null) {
+    currentShopId.value = shopId
+    if (shopId === null) {
+      localStorage.removeItem(CURRENT_SHOP_KEY)
+    } else {
+      localStorage.setItem(CURRENT_SHOP_KEY, String(shopId))
+    }
+  }
+
+  function isShopStepReady() {
+    return sessionStorage.getItem(SHOP_STEP_KEY) === '1'
+  }
+
+  function setShopStepReady(ready: boolean) {
+    if (ready) sessionStorage.setItem(SHOP_STEP_KEY, '1')
+    else sessionStorage.removeItem(SHOP_STEP_KEY)
+  }
+
+  // ── Step 1 预登录 ──────────────────────────────────────────
+  async function preAuthLogin(req: LoginReq): Promise<PreAuthLoginResponse> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const resp = await (authApi.loginPreAuth(req) as any) as PreAuthLoginResponse
+    setPreAuthData(resp.preAuthToken, resp.shops ?? [])
+    setShopStepReady(true)
+    return resp
+  }
+
+  // ── 读取预登录店铺（写 shopTree）────────────────────────────
+  function loadPendingShopsIntoTree() {
+    const list = getPendingShops()
+    const tree = buildShopTree(list)
+    ;(shops as any).value = list
+    ;(shopTree as any).value = tree
+  }
+
+  // 后端返回的是扁平 shopItem[]，转成 el-tree-select 需要的树形
+  function buildShopTree(list: ShopItem[]): any[] {
+    const map = new Map<number, any>()
+    const roots: any[] = []
+    for (const s of list) {
+      map.set(s.shopId, { id: s.shopId, shopName: s.shopName, children: [] })
+    }
+    for (const s of list) {
+      const node = map.get(s.shopId)!
+      // ShopItem 无 parentId，视为平铺，均为根节点
+      roots.push(node)
+    }
+    return roots
+  }
+
+  // ── Step 2 确认店铺 ─────────────────────────────────────────
+  async function confirmShopEntry(shopId: number): Promise<void> {
+    const preAuthToken = getPreAuthToken()
+    if (!preAuthToken) throw new Error('预登录态已失效，请重新登录')
+
+    const resp: LoginResponse = await confirmShopApi({ preAuthToken, shopId })
+
+    setToken(resp.accessToken)
+    setCurrentShopId(resp.currentShopId)
+    clearPreAuthData()
     userInfo.value = null
     menus.value = []
     permissions.value = []
-    currentShopId.value = null
-    shopTree.value = []
-    return nextToken
+    shops.value = []
+    await fetchProfileAndAcl()
   }
 
+  // ── 已登录后切换店铺 ────────────────────────────────────────
+  async function switchShop(shopId: number) {
+    const resp: LoginResponse = await switchShopApi(shopId)
+    setToken(resp.accessToken)
+    setCurrentShopId(resp.currentShopId)
+    userInfo.value = null
+    menus.value = []
+    await fetchProfileAndAcl()
+  }
+
+  // ── 获取用户信息并构建路由 ──────────────────────────────────
   async function fetchProfileAndAcl() {
-    const data = await authApi.getCurrentUserInfo()
+    const data = await (authApi.getCurrentUserInfo() as any) as CurrentUserInfo
     userInfo.value = data
-    menus.value = data.menus || []
-    permissions.value = data.permissions || []
-    currentShopId.value = data.shopId || null
+    // 后端返回 { profile, menus, latestNoticeTitle }
+    menus.value = data.menus ?? []
+    latestNotice.value = data.latestNoticeTitle ?? ''
+    setCurrentShopId(data.profile?.currentShopId ?? null)
     addAccessibleRoutes()
   }
 
-  // Action 2 - fetchAuthorizedShops()
-  async function fetchAuthorizedShops() {
-    const treeResp = await getUserShops()
-    const tree = Array.isArray(treeResp)
-      ? treeResp
-      : (((treeResp as unknown as { data?: ShopTreeVO[] })?.data || []) as ShopTreeVO[])
-    shopTree.value = tree || []
-    const nextShops: ShopItem[] = []
-    const flat = (nodes: ShopTreeVO[]) => {
-      for (const node of nodes) {
-        nextShops.push({ shopId: node.id, shopName: node.shopName })
-        if (node.children?.length) flat(node.children)
-      }
-    }
-    flat(shopTree.value)
-    shops.value = nextShops
-  }
+  function fetchUserInfo() { return fetchProfileAndAcl() }
+  function fetchUserShops() { /* 已登录后的店铺从 profile.accessibleShopIds 读，不再单独拉 */ }
 
-  // Action 3 - enterSystem(shopId: number)
-  async function enterSystem(shopId: number) {
-    const resp = await switchShopApi(shopId)
-    const nextToken = unwrapToken(resp)
-    if (!nextToken) throw new Error('切换店铺失败：未获取到正式 token')
-    token.value = nextToken
-    localStorage.setItem('nexus_token', nextToken)
-    currentShopId.value = shopId
-    await fetchProfileAndAcl()
-    router.push('/')
-  }
-
-  async function fetchUserInfo() {
-    await fetchProfileAndAcl()
-  }
-
-  async function fetchUserShops() {
-    await fetchAuthorizedShops()
-  }
-
-  async function confirmShopEntry(shopId: number, redirectPath = '/') {
-    await enterSystem(shopId)
-    if (redirectPath && redirectPath !== '/') router.push(redirectPath)
-  }
-
-  async function switchShop(shopId: number) {
-    await enterSystem(shopId)
-  }
-
+  // ── 登出 ───────────────────────────────────────────────────
   async function logout() {
-    try { await authApi.logout() } catch {}
+    try { await authApi.logout() } catch { /* ignore */ }
     token.value = ''
     userInfo.value = null
     menus.value = []
     permissions.value = []
-    currentShopId.value = null
-    shopTree.value = []
+    setCurrentShopId(null)
+    clearPreAuthData()
     shops.value = []
-    localStorage.removeItem('nexus_token')
+    localStorage.removeItem(TOKEN_KEY)
     router.push('/login')
   }
 
+  // ── 动态路由 ────────────────────────────────────────────────
   function buildFlatRoutes(menuNodes: UserMenuNode[], modulePath = ''): any[] {
     const flat: any[] = []
     for (const node of menuNodes) {
       const name = '__dyn_' + node.menuName
-      const currentModulePath =
-        modulePath || (node.fullPath || node.path || '').split('/').filter(Boolean)[0] || 'dashboard'
-      const normalizedModulePath = currentModulePath.startsWith('/') ? currentModulePath : `/${currentModulePath}`
+      const seg = (node.fullPath || node.path || '').split('/').filter(Boolean)[0] || 'dashboard'
+      const normalizedModulePath = seg.startsWith('/') ? seg : `/${seg}`
       if (node.component) {
-        // fullPath 为空时给一个稳定兜底，避免 addRoute 时报错
-        const fullPath = node.fullPath || (node.path ? (node.path.startsWith('/') ? node.path : `/${node.path}`) : `/menu-${node.id}`)
+        const fullPath = node.fullPath ||
+          (node.path ? (node.path.startsWith('/') ? node.path : `/${node.path}`) : `/menu-${node.id}`)
         const viewKey = normalizeMenuComponentToViewKey(node.component)
-        const hasView = !!viewModules[viewKey]
-        if (!hasView) {
-          console.warn(
-            `[Router] 视图映射失败: 菜单名称为 ${node.menuName}, 预期的 component 路径为 ${viewKey}`
-          )
-        }
         const importer = viewModules[viewKey] || viewModules[FALLBACK_VIEW_KEY]
         flat.push({
-          // 作为 Layout 的 children 挂载，避免进入独立页面时丢失侧边栏
           path: fullPath.replace(/^\/+/, '') || `menu-${node.id}`,
           name,
           component: importer,
@@ -166,7 +224,6 @@ export const useUserStore = defineStore('user', () => {
         })
       }
       if (node.children?.length) {
-        // 递归处理子菜单
         flat.push(...buildFlatRoutes(node.children, normalizedModulePath))
       }
     }
@@ -174,28 +231,34 @@ export const useUserStore = defineStore('user', () => {
   }
 
   function addAccessibleRoutes() {
-    // 清除旧的动态路由
     const existingRoutes = router.getRoutes()
     for (const r of existingRoutes) {
       if (r.name && String(r.name).startsWith('__dyn_')) {
         try { router.removeRoute(r.name) } catch { /* ignore */ }
       }
     }
-    // 全部注册到 Layout 子路由下，统一走布局壳
-    const flatRoutes = buildFlatRoutes(menus.value)
-    for (const r of flatRoutes) {
+    for (const r of buildFlatRoutes(menus.value)) {
       router.addRoute('Layout', r)
     }
   }
 
+  // shopTree 仅供 el-tree-select 渲染
+  const shopTree = ref<any[]>([])
+
   return {
-    token,           // 暴露原始 ref（写操作）
-    getToken,        // 暴露读取方法（读操作：自动同步 localStorage）
-    userInfo, currentShopId, menus, permissions,
-    profile, latestNotice, shopTree, shops, currentShop,
-    isLoggedIn, isShopConfirmed,
-    loginAccount, fetchAuthorizedShops, enterSystem,
-    loginAction: loginAccount, login: loginAccount, fetchUserInfo, fetchUserShops, fetchShops: fetchUserShops, confirmShopEntry, switchShop, logout,
+    token, userInfo, menus, permissions, currentShopId, shops, shopTree,
+    latestNotice, profile, currentShop, isLoggedIn,
+    getToken, getCurrentShopId: getCurrentShopIdFromLs,
+    isShopStepReady, setShopStepReady,
+    getPreAuthToken, getPendingShops, clearPreAuthData,
+    preAuthLogin, loadPendingShopsIntoTree, confirmShopEntry,
+    switchShop, fetchProfileAndAcl, fetchUserInfo, fetchUserShops, logout,
     addAccessibleRoutes,
+    // 兼容已有调用
+    loginAccount: preAuthLogin,
+    login: preAuthLogin,
+    enterSystem: confirmShopEntry,
+    fetchAuthorizedShops: loadPendingShopsIntoTree,
+    fetchShops: fetchUserShops,
   }
 })

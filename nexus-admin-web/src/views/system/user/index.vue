@@ -57,7 +57,7 @@
 
     <!-- 新增/编辑用户弹窗 -->
     <el-dialog
-      v-model="dialogVisible"
+:append-to-body="true"       v-model="dialogVisible"
       :title="isEdit ? '编辑用户' : '新增用户'"
       width="500px"
       destroy-on-close
@@ -95,7 +95,7 @@
     </el-dialog>
 
     <!-- 分配店铺角色弹窗 -->
-    <el-dialog v-model="assignDialogVisible" title="分配店铺角色" width="500px" destroy-on-close>
+    <el-dialog :append-to-body="true" v-model="assignDialogVisible" title="分配店铺角色" width="500px" destroy-on-close>
       <p style="color:#909399">正在为用户 <strong>{{ currentRow?.username }}</strong> 分配角色，功能开发中...</p>
       <template #footer>
         <el-button @click="assignDialogVisible = false">关闭</el-button>
@@ -245,9 +245,20 @@ fetchData()
 </script>
 
 <style scoped>
-.page-container { padding: 16px; }
-.search-card { margin-bottom: 12px; }
-.table-card { margin-bottom: 12px; }
+.page-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 16px;
+  gap: 12px;
+}
+.search-card { flex-shrink: 0; }
+.table-card {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
 .toolbar { display: flex; align-items: center; }
 .pagination-wrap { margin-top: 16px; display: flex; justify-content: flex-end; }
 </style>

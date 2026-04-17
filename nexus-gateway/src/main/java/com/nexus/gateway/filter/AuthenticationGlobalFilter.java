@@ -128,7 +128,7 @@ public class AuthenticationGlobalFilter implements GlobalFilter, Ordered {
         if (path == null) {
             return true;
         }
-        if (path.equals("/api/v1/auth/login")) {
+        if (path.equals("/api/v1/auth/login") || path.equals("/api/v1/auth/confirm-shop")) {
             return true;
         }
         if (path.startsWith("/api/v1/system/captcha/")) {

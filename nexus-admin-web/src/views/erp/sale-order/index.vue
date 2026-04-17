@@ -56,7 +56,7 @@
     <RequestErrorState v-if="errorMsg && !loading" :description="errorMsg" @retry="loadData" />
 
     <el-drawer
-      v-model="drawerVisible"
+:append-to-body="true"       v-model="drawerVisible"
       :size="800"
       direction="rtl"
       destroy-on-close

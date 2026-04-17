@@ -22,7 +22,7 @@
       </el-table>
     </NexusCard>
 
-    <el-dialog v-model="dialogVisible" width="560px" destroy-on-close class="nexus-dialog">
+    <el-dialog :append-to-body="true" v-model="dialogVisible" width="560px" destroy-on-close class="nexus-dialog">
       <template #header>
         <span class="dialog-title">{{ form.id ? '编辑分类' : '新增分类' }}</span>
       </template>

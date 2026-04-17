@@ -77,7 +77,7 @@
       <RequestErrorState v-if="errorMsg && !loading" :description="errorMsg" @retry="loadData" />
     </section>
 
-    <el-dialog v-model="dialogVisible" width="680px" destroy-on-close class="employee-dialog">
+    <el-dialog :append-to-body="true" v-model="dialogVisible" width="680px" destroy-on-close class="employee-dialog">
       <template #header>
         <span class="dialog-title">{{ form.id ? '编辑员工' : '新增员工' }}</span>
       </template>
@@ -368,6 +368,7 @@ onMounted(async () => {
 .org-panel,
 .content-panel {
   min-height: 0;
+  overflow: hidden;
 }
 
 .org-panel {
@@ -377,6 +378,14 @@ onMounted(async () => {
   padding: 16px;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+}
+
+.content-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow: hidden;
 }
 
 .panel-header {

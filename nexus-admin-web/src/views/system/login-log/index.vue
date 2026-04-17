@@ -113,8 +113,19 @@ fetchData()
 </script>
 
 <style scoped>
-.page-container { padding: 16px; }
-.search-card { margin-bottom: 12px; }
-.table-card { margin-bottom: 12px; }
+.page-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 16px;
+  gap: 12px;
+}
+.search-card { flex-shrink: 0; }
+.table-card {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
 .pagination-wrap { margin-top: 16px; display: flex; justify-content: flex-end; }
 </style>

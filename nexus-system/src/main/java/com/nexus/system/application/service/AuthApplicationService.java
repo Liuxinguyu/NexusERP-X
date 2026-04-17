@@ -81,7 +81,7 @@ public class AuthApplicationService {
         this.onlineUserRedisService = onlineUserRedisService;
     }
 
-    public AuthDtos.LoginResponse login(AuthDtos.LoginRequest request, HttpServletRequest http) {
+    public AuthDtos.PreAuthLoginResponse login(AuthDtos.LoginRequest request, HttpServletRequest http) {
         String ip = clientIp(http);
         String ua = http.getHeader("User-Agent");
         String nameForLog = request != null && StringUtils.hasText(request.getUsername()) ? request.getUsername().trim() : "";
@@ -123,20 +123,67 @@ public class AuthApplicationService {
             sysLoginLogApplicationService.recordFailure(user.getTenantId(), user.getUsername(), ip, ua, "无可登录店铺");
             throw new BusinessException(ResultCode.FORBIDDEN, "当前用户无可登录店铺");
         }
-        Long currentShopId = chooseCurrentShop(user.getMainShopId(), shops);
-        ScopeData scope = scopeByUserAndShop(user.getTenantId(), user.getId(), currentShopId);
 
+        Long recommendedShopId = chooseCurrentShop(user.getMainShopId(), shops);
         authRedisService.saveUserShops(user.getId(), shops);
-        authRedisService.saveSession(user.getId(),
-                new AuthRedisService.SessionState(currentShopId, scope.dataScope, scope.accessibleShopIds));
+        String preAuthToken = authRedisService.savePreAuthSession(new AuthRedisService.PreAuthSession(
+                user.getId(), user.getTenantId(), user.getUsername(), recommendedShopId, shops
+        ));
 
-        SysShop currentShop = shopMapper.selectById(currentShopId);
-        Long currentOrgId = currentShop != null ? currentShop.getOrgId() : null;
+        AuthDtos.PreAuthLoginResponse resp = new AuthDtos.PreAuthLoginResponse();
+        resp.setPreAuthToken(preAuthToken);
+        resp.setTenantId(user.getTenantId());
+        resp.setRecommendedShopId(recommendedShopId);
+        resp.setShops(shops);
+        resp.setExpiresInSeconds(10 * 60L);
+        resp.setRequiresShopSelection(true);
+        return resp;
+    }
 
-        Collection<GrantedAuthority> authorities = buildAuthorities(user.getId(), currentShopId);
+    public AuthDtos.LoginResponse confirmShop(AuthDtos.ConfirmShopRequest request, HttpServletRequest http) {
+        String ip = clientIp(http);
+        String ua = http.getHeader("User-Agent");
+        if (request == null || !StringUtils.hasText(request.getPreAuthToken())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "preAuthToken 不能为空");
+        }
+        if (request.getShopId() == null) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "shopId 不能为空");
+        }
 
+        AuthRedisService.PreAuthSession preAuth = authRedisService.consumePreAuthSession(request.getPreAuthToken())
+                .orElseThrow(() -> new BusinessException(ResultCode.UNAUTHORIZED, "登录票据已失效，请重新登录"));
+
+        Long userId = preAuth.userId();
+        Long tenantId = preAuth.tenantId();
+        String username = preAuth.username();
+        SysUser user = userMapper.selectById(userId);
+        if (user == null || user.getDelFlag() != null && user.getDelFlag() == 1) {
+            throw new BusinessException(ResultCode.UNAUTHORIZED, "用户不存在或已删除");
+        }
+        if (user.getStatus() != null && user.getStatus() == 0) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "账号已停用");
+        }
+
+        Long targetShopId = request.getShopId();
+        boolean allowed = preAuth.shops() != null && preAuth.shops().stream()
+                .map(AuthDtos.ShopItem::getShopId)
+                .filter(Objects::nonNull)
+                .anyMatch(targetShopId::equals);
+        if (!allowed) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "无该店铺权限，无法进入");
+        }
+
+        ScopeData scope = scopeByUserAndShop(tenantId, userId, targetShopId);
+        authRedisService.saveUserShops(userId, preAuth.shops());
+        authRedisService.saveSession(userId,
+                new AuthRedisService.SessionState(targetShopId, scope.dataScope, scope.accessibleShopIds));
+
+        SysShop targetShop = shopMapper.selectById(targetShopId);
+        Long orgId = targetShop != null ? targetShop.getOrgId() : null;
+
+        Collection<GrantedAuthority> authorities = buildAuthorities(userId, targetShopId);
         NexusPrincipal principal = new NexusPrincipal(
-                user.getId(), user.getUsername(), user.getTenantId(), currentShopId, currentOrgId,
+                userId, username, tenantId, targetShopId, orgId,
                 scope.dataScope, scope.accessibleShopIds, scope.accessibleOrgIds, authorities
         );
         String token = jwtTokenProvider.createAccessToken(principal);
@@ -147,19 +194,10 @@ public class AuthApplicationService {
             log.warn("在线会话写入 Redis 失败: {}", e.getMessage());
         }
 
-        sysLoginLogApplicationService.recordSuccess(user.getTenantId(), user.getUsername(), ip, ua, "登录成功");
-
-        AuthDtos.LoginResponse resp = new AuthDtos.LoginResponse();
-        resp.setAccessToken(token);
-        resp.setTokenType("Bearer");
-        resp.setTenantId(user.getTenantId());
-        resp.setCurrentShopId(currentShopId);
-        resp.setCurrentOrgId(currentOrgId);
-        resp.setDataScope(scope.dataScope);
-        resp.setAccessibleShopIds(scope.accessibleShopIds);
-        resp.setAccessibleOrgIds(scope.accessibleOrgIds);
-        return resp;
+        sysLoginLogApplicationService.recordSuccess(tenantId, username, ip, ua, "登录成功");
+        return buildLoginResponse(token, tenantId, targetShopId, orgId, scope);
     }
+
 
     private static String clientIp(HttpServletRequest request) {
         String x = request.getHeader("X-Forwarded-For");
@@ -244,15 +282,7 @@ public class AuthApplicationService {
 
         sysLoginLogApplicationService.recordSuccess(tenantId, username, ip, ua, "Token 续期");
 
-        AuthDtos.LoginResponse resp = new AuthDtos.LoginResponse();
-        resp.setAccessToken(newToken);
-        resp.setTokenType("Bearer");
-        resp.setTenantId(tenantId);
-        resp.setCurrentShopId(currentShopId);
-        resp.setCurrentOrgId(currentOrgId);
-        resp.setDataScope(scope.dataScope);
-        resp.setAccessibleShopIds(scope.accessibleShopIds);
-        resp.setAccessibleOrgIds(scope.accessibleOrgIds);
+        AuthDtos.LoginResponse resp = buildLoginResponse(newToken, tenantId, currentShopId, currentOrgId, scope);
         return resp;
     }
 
@@ -300,16 +330,7 @@ public class AuthApplicationService {
 
         sysLoginLogApplicationService.recordSuccess(tenantId, username, ip, ua, "切换店铺");
 
-        AuthDtos.LoginResponse resp = new AuthDtos.LoginResponse();
-        resp.setAccessToken(token);
-        resp.setTokenType("Bearer");
-        resp.setTenantId(tenantId);
-        resp.setCurrentShopId(targetShopId);
-        resp.setCurrentOrgId(orgId);
-        resp.setDataScope(scope.dataScope);
-        resp.setAccessibleShopIds(scope.accessibleShopIds);
-        resp.setAccessibleOrgIds(scope.accessibleOrgIds);
-        return resp;
+        return buildLoginResponse(token, tenantId, targetShopId, orgId, scope);
     }
 
     private List<AuthDtos.ShopItem> queryShops(Long userId) {
@@ -395,6 +416,20 @@ public class AuthApplicationService {
         }
 
         return new ScopeData(maxScope, accessibleShopIds, accessibleOrgIds);
+    }
+
+    private AuthDtos.LoginResponse buildLoginResponse(String token, Long tenantId, Long currentShopId,
+                                                     Long currentOrgId, ScopeData scope) {
+        AuthDtos.LoginResponse resp = new AuthDtos.LoginResponse();
+        resp.setAccessToken(token);
+        resp.setTokenType("Bearer");
+        resp.setTenantId(tenantId);
+        resp.setCurrentShopId(currentShopId);
+        resp.setCurrentOrgId(currentOrgId);
+        resp.setDataScope(scope.dataScope);
+        resp.setAccessibleShopIds(scope.accessibleShopIds);
+        resp.setAccessibleOrgIds(scope.accessibleOrgIds);
+        return resp;
     }
 
     /**

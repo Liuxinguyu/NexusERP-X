@@ -43,7 +43,7 @@
 
     <RequestErrorState v-if="errorMsg && !loading" :description="errorMsg" @retry="loadData" />
 
-    <el-dialog v-model="dialogVisible" width="620px" destroy-on-close class="nexus-dialog">
+    <el-dialog :append-to-body="true" v-model="dialogVisible" width="620px" destroy-on-close class="nexus-dialog">
       <template #header>
         <span class="dialog-title">{{ form.id ? '编辑仓库' : '新增仓库' }}</span>
       </template>

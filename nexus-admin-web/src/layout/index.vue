@@ -18,21 +18,21 @@
         @logout="userStore.logout()"
       />
 
-      <SubTabs
-        :menus="userStore.menus"
-        :current-path="route.path"
-        :current-module="appStore.activeModule"
-        @navigate="navigateTo"
-      />
+      <div class="subtabs-wrap">
+        <SubTabs
+          :menus="userStore.menus"
+          :current-path="route.path"
+          :current-module="appStore.activeModule"
+          @navigate="navigateTo"
+        />
+      </div>
 
       <main class="content-shell">
-        <section class="content-surface">
-          <router-view v-slot="{ Component }">
-            <transition name="page-fade" mode="out-in">
-              <component :is="Component" :key="route.fullPath" />
-            </transition>
-          </router-view>
-        </section>
+        <router-view v-slot="{ Component }">
+          <transition name="page-fade" mode="out-in">
+            <component :is="Component" :key="route.fullPath" />
+          </transition>
+        </router-view>
       </main>
     </div>
   </div>
@@ -120,6 +120,7 @@ onMounted(async () => {
 .layout-root {
   display: flex;
   height: 100vh;
+  width: 100vw;
   overflow: hidden;
   background: var(--main-bg);
 }
@@ -132,19 +133,16 @@ onMounted(async () => {
   overflow: hidden;
 }
 
+.subtabs-wrap {
+  flex-shrink: 0;
+}
+
 .content-shell {
   flex: 1;
   min-height: 0;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: 24px;
-}
-
-.content-surface {
-  height: 100%;
-  min-height: 0;
-  border-radius: var(--radius-md);
-  background: rgba(255, 255, 255, 0.72);
-  overflow: hidden;
 }
 
 .page-fade-enter-active,

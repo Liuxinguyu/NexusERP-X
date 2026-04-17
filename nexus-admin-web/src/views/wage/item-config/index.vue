@@ -33,7 +33,7 @@
         </div>
       </template>
 
-      <el-table :data="tableData" stripe v-loading="loading">
+      <el-table :data="tableData" stripe v-loading="loading" height="100%">
         <el-table-column prop="itemName" label="薪资项名称" min-width="140" />
         <el-table-column prop="itemKind" label="类别" width="100" align="center">
           <template #default="{ row }">
@@ -93,7 +93,7 @@
 
     <!-- 新增 / 编辑弹窗 -->
     <el-dialog
-      v-model="dialogVisible"
+:append-to-body="true"       v-model="dialogVisible"
       :title="dialogTitle"
       width="520px"
       destroy-on-close
@@ -328,9 +328,20 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.wage-item-config-page { padding: 16px; }
-.search-card { margin-bottom: 12px; }
-.table-card { }
+.wage-item-config-page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 16px;
+  gap: 12px;
+}
+.search-card { flex-shrink: 0; }
+.table-card {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
 .card-header {
   display: flex;
   align-items: center;

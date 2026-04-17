@@ -81,25 +81,28 @@
                 <strong>已完成账号校验</strong>
                 <span>请选择本次要进入的店铺后继续</span>
               </div>
-              <el-select
+              <el-tree-select
                 v-model="selectedShopId"
+                :data="userStore.shopTree"
+                :props="treeProps"
+                node-key="id"
+                check-strictly
                 placeholder="请选择店铺"
                 class="nexus-tree-select"
                 filterable
                 clearable
-              >
-                <el-option
-                  v-for="item in shopOptions"
-                  :key="item.id"
-                  :label="item.label"
-                  :value="item.id"
-                />
-              </el-select>
-              <div v-if="!hasShops" class="shop-empty">
+              />
+              <div v-if="!userStore.shopTree.length" class="shop-empty">
                 当前账号未分配可访问店铺，请联系管理员
               </div>
             </div>
-            <el-button type="primary" :loading="loading" class="submit-btn" :disabled="!hasShops" @click="handleEnterSystem">
+            <el-button
+              type="primary"
+              :loading="loading"
+              class="submit-btn"
+              :disabled="!userStore.shopTree.length"
+              @click="handleEnterSystem"
+            >
               进入系统
             </el-button>
             <el-button class="back-btn" @click="handleBack">返回上一步</el-button>
@@ -111,11 +114,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { authApi } from '@/api/auth'
 import { useUserStore } from '@/stores/user'
 
+const route = useRoute()
+const router = useRouter()
 const userStore = useUserStore()
 const step = ref<1 | 2>(1)
 const loading = ref(false)
@@ -137,19 +143,15 @@ const accountRules: FormRules = {
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
 }
 
-const hasShops = computed(() => userStore.shopTree.length > 0)
-const shopOptions = computed(() => {
-  const result: Array<{ id: number; label: string }> = []
-  const walk = (nodes: Array<{ id: number; shopName: string; children?: any[] }>, prefix = '') => {
-    for (const node of nodes || []) {
-      const label = prefix ? `${prefix} / ${node.shopName}` : node.shopName
-      result.push({ id: node.id, label })
-      if (node.children?.length) walk(node.children, label)
-    }
-  }
-  walk(userStore.shopTree as Array<{ id: number; shopName: string; children?: any[] }>)
-  return result
-})
+const treeProps = {
+  label: 'shopName',
+  value: 'id',
+  children: 'children',
+} as const
+
+function isShopStep() {
+  return route.query.step === 'shop' && !!userStore.getPreAuthToken()
+}
 
 function normalizeCaptchaImage(img: string) {
   if (!img) return ''
@@ -183,6 +185,18 @@ async function loadCaptcha(forceRefresh = false) {
   }
 }
 
+async function ensureShopStep() {
+  if (!isShopStep()) {
+    step.value = 1
+    selectedShopId.value = undefined
+    return
+  }
+  step.value = 2
+  // 预登录票据有效时，直接从 sessionStorage 加载店铺列表
+  userStore.loadPendingShopsIntoTree()
+  selectedShopId.value = undefined
+}
+
 async function handleNextStep() {
   if (!accountFormRef.value) return
   try {
@@ -192,13 +206,13 @@ async function handleNextStep() {
   }
   loading.value = true
   try {
-    await userStore.loginAccount({
+    await userStore.preAuthLogin({
       username: accountForm.username.trim(),
       password: accountForm.password,
       captcha: accountForm.captcha || undefined,
       captchaKey: accountForm.captchaKey || undefined,
     })
-    await userStore.fetchAuthorizedShops()
+    userStore.loadPendingShopsIntoTree()
     selectedShopId.value = undefined
     step.value = 2
   } catch (error: any) {
@@ -211,13 +225,15 @@ async function handleNextStep() {
 }
 
 async function handleEnterSystem() {
-  if (!selectedShopId.value) {
+  const normalizedShopId = Number(selectedShopId.value)
+  if (!Number.isFinite(normalizedShopId) || normalizedShopId <= 0) {
     ElMessage.warning('请选择店铺')
     return
   }
   loading.value = true
   try {
-    await userStore.enterSystem(selectedShopId.value)
+    await userStore.confirmShopEntry(normalizedShopId)
+    router.push('/dashboard')
   } catch (error: any) {
     ElMessage.error(error?.message || '进入系统失败')
   } finally {
@@ -228,11 +244,21 @@ async function handleEnterSystem() {
 async function handleBack() {
   step.value = 1
   selectedShopId.value = undefined
+  userStore.clearPreAuthData()
   await loadCaptcha(true)
 }
 
-onMounted(() => {
-  loadCaptcha()
+watch(
+  () => route.query.step,
+  async () => {
+    await ensureShopStep()
+    if (step.value === 1) await loadCaptcha()
+  }
+)
+
+onMounted(async () => {
+  await ensureShopStep()
+  if (step.value === 1) await loadCaptcha()
 })
 </script>
 

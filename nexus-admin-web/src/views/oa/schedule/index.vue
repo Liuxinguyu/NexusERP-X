@@ -69,7 +69,7 @@
 
     <!-- 新增/编辑弹窗 -->
     <el-dialog
-      v-model="dialogVisible"
+:append-to-body="true"       v-model="dialogVisible"
       :title="isEdit ? '编辑日程' : '新增日程'"
       width="560px"
       destroy-on-close
@@ -290,9 +290,21 @@ onMounted(() => loadData())
 </script>
 
 <style scoped>
-.page-container { padding: 16px; }
-.search-card { margin-bottom: 12px; }
-.table-card { border-radius: 8px; }
+.page-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 16px;
+  gap: 12px;
+}
+.search-card { flex-shrink: 0; }
+.table-card {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border-radius: 8px;
+}
 .card-header { display: flex; justify-content: space-between; align-items: center; }
 .pagination-wrap { display: flex; justify-content: flex-end; margin-top: 16px; }
 </style>

@@ -31,7 +31,7 @@
 
     <!-- 新增/编辑组织弹窗 -->
     <el-dialog
-      v-model="dialogVisible"
+:append-to-body="true"       v-model="dialogVisible"
       :title="isEdit ? '编辑组织' : '新增组织'"
       width="500px"
       destroy-on-close
@@ -162,10 +162,15 @@ initTree()
 </script>
 
 <style scoped>
-.page-container { padding: 16px; }
-.toolbar-card { margin-bottom: 12px; }
+.page-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.toolbar-card { flex-shrink: 0; margin-bottom: 12px; }
+.tree-card { flex: 1; min-height: 0; overflow: auto; }
 .toolbar { display: flex; align-items: center; }
-.tree-card { min-height: 400px; }
 .tree-node-wrap { flex: 1; display: flex; align-items: center; justify-content: space-between; width: 100%; }
 .node-label { font-size: 14px; }
 .node-actions { display: flex; gap: 8px; }

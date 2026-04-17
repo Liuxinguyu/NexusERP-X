@@ -31,6 +31,13 @@ defineEmits<{
 
 type TabItem = { path: string; label: string; sort: number }
 
+/** 模块 → 枢纽页路由映射（点击父节点时跳转的概览页） */
+const moduleHubMap: Record<string, { path: string; label: string }> = {
+  '/system': { path: '/system/hub', label: '概览' },
+  '/erp':    { path: '/erp/hub',    label: '概览' },
+  '/oa':     { path: '/oa/hub',     label: '概览' },
+}
+
 function normalize(path: string): string {
   return path.startsWith('/') ? path : `/${path}`
 }
@@ -45,14 +52,15 @@ function findFirstLeafPath(node: UserMenuNode): string {
 }
 
 /** 仅展示当前一级模块下的「二级」菜单：根节点的直接子节点，每个 Tab 对应一条可访问路由 */
-function collectSecondLevelTabs(root: UserMenuNode): TabItem[] {
-  const out: TabItem[] = []
+function collectSecondLevelTabs(root: UserMenuNode, moduleBase: string): TabItem[] {
+  const hub = moduleHubMap[moduleBase]
+  const out: TabItem[] = hub ? [{ path: hub.path, label: hub.label, sort: -1 }] : []
   for (const child of root.children || []) {
     const path = child.component ? normalize(child.fullPath || child.path) : findFirstLeafPath(child)
     if (!path) continue
-    out.push({ path, label: child.menuName, sort: child.sort || 0 })
+    out.push({ path, label: child.menuName, sort: child.sort ?? 0 })
   }
-  return out.sort((a, b) => a.sort - b.sort)
+  return out
 }
 
 /** 无二级节点时：收集该模块下所有可路由叶子（兼容旧菜单扁平结构） */
@@ -71,7 +79,7 @@ const tabs = computed<TabItem[]>(() => {
   for (const root of props.menus || []) {
     const rootBase = normalize((root.fullPath || root.path || '').split('/').filter(Boolean)[0] || '')
     if (rootBase === props.currentModule) {
-      const second = collectSecondLevelTabs(root)
+      const second = collectSecondLevelTabs(root, rootBase)
       if (second.length) return second
       if (root.component) {
         const p = normalize(root.fullPath || root.path)

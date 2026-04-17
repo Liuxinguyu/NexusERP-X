@@ -33,8 +33,14 @@ public class AuthController {
     private final SysLoginLogApplicationService sysLoginLogApplicationService;
 
     @PostMapping("/login")
-    public Result<AuthDtos.LoginResponse> login(@RequestBody AuthDtos.LoginRequest request, HttpServletRequest http) {
+    public Result<AuthDtos.PreAuthLoginResponse> login(@RequestBody AuthDtos.LoginRequest request, HttpServletRequest http) {
         return Result.ok(authApplicationService.login(request, http));
+    }
+
+    @PostMapping("/confirm-shop")
+    public Result<AuthDtos.LoginResponse> confirmShop(@RequestBody AuthDtos.ConfirmShopRequest request,
+                                                      HttpServletRequest http) {
+        return Result.ok(authApplicationService.confirmShop(request, http));
     }
 
     @PostMapping("/logout")

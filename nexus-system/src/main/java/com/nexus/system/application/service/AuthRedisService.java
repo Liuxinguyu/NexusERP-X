@@ -11,11 +11,13 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 @Service
 public class AuthRedisService {
 
     private static final Duration TTL = Duration.ofHours(12);
+    private static final Duration PRE_AUTH_TTL = Duration.ofMinutes(10);
 
     private final RedisTemplate<String, String> redisTemplate;
     private final ObjectMapper objectMapper;
@@ -68,6 +70,45 @@ public class AuthRedisService {
         }
     }
 
+    public String savePreAuthSession(PreAuthSession state) {
+        String token = UUID.randomUUID().toString().replace("-", "");
+        try {
+            String json = objectMapper.writeValueAsString(state);
+            redisTemplate.opsForValue().set(preAuthKey(token), json, PRE_AUTH_TTL);
+            return token;
+        } catch (Exception e) {
+            throw new BusinessException(ResultCode.INTERNAL_ERROR.getCode(), "写入预登录缓存失败", e);
+        }
+    }
+
+    public Optional<PreAuthSession> getPreAuthSession(String token) {
+        if (token == null || token.isBlank()) {
+            return Optional.empty();
+        }
+        String raw = redisTemplate.opsForValue().get(preAuthKey(token));
+        if (raw == null || raw.isBlank()) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(objectMapper.readValue(raw, PreAuthSession.class));
+        } catch (Exception e) {
+            throw new BusinessException(ResultCode.INTERNAL_ERROR.getCode(), "读取预登录缓存失败", e);
+        }
+    }
+
+    public Optional<PreAuthSession> consumePreAuthSession(String token) {
+        Optional<PreAuthSession> session = getPreAuthSession(token);
+        session.ifPresent(it -> redisTemplate.delete(preAuthKey(token)));
+        return session;
+    }
+
+    public void clearPreAuthSession(String token) {
+        if (token == null || token.isBlank()) {
+            return;
+        }
+        redisTemplate.delete(preAuthKey(token));
+    }
+
     public void refreshTtl(Long userId) {
         redisTemplate.expire(shopsKey(userId), TTL);
         redisTemplate.expire(sessionKey(userId), TTL);
@@ -81,7 +122,18 @@ public class AuthRedisService {
         return "nexus:auth:uid:" + uid + ":session";
     }
 
+    private static String preAuthKey(String token) {
+        return "nexus:auth:pre:" + token;
+    }
+
     public record SessionState(Long currentShopId, Integer dataScope, List<Long> accessibleShopIds) {
+    }
+
+    public record PreAuthSession(Long userId,
+                                 Long tenantId,
+                                 String username,
+                                 Long recommendedShopId,
+                                 List<AuthDtos.ShopItem> shops) {
     }
 }
 

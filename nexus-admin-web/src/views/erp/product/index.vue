@@ -36,7 +36,7 @@
       </el-table>
     </NexusTableCard>
 
-    <el-dialog v-model="dialogVisible" width="620px" destroy-on-close class="nexus-dialog">
+    <el-dialog :append-to-body="true" v-model="dialogVisible" width="620px" destroy-on-close class="nexus-dialog">
       <template #header>
         <span class="dialog-title">{{ form.id ? '编辑产品' : '新增产品' }}</span>
       </template>
@@ -225,6 +225,13 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.page-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  gap: 12px;
+}
 .search-form {
   margin-bottom: 0;
 }

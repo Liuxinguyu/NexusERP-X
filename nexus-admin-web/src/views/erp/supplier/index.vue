@@ -40,7 +40,7 @@
     </NexusTableCard>
     <RequestErrorState v-if="errorMsg && !loading" :description="errorMsg" @retry="loadData" />
 
-    <el-dialog v-model="dialogVisible" width="560px" destroy-on-close class="nexus-dialog">
+    <el-dialog :append-to-body="true" v-model="dialogVisible" width="560px" destroy-on-close class="nexus-dialog">
       <template #header>
         <span class="dialog-title">{{ form.id ? '编辑供应商' : '新增供应商' }}</span>
       </template>

@@ -60,9 +60,20 @@ function onDashboard() {
   emit('select-dashboard')
 }
 
+// 父级模块 → 枢纽页路由（点击父节点时优先跳转到此）
+const moduleHubMap: Record<string, string> = {
+  '/system': '/system/hub',
+  '/erp':    '/erp/hub',
+  '/oa':     '/oa/hub',
+}
+
 function handleModuleClick(base: string) {
   appStore.setActiveModule(base, props.menus)
-  if (appStore.activeTabPath) {
+  // 优先跳转到模块枢纽页，实现"父菜单 → 枢纽大厅"的双向结合
+  const hubPath = moduleHubMap[base]
+  if (hubPath) {
+    router.push(hubPath)
+  } else if (appStore.activeTabPath) {
     router.push(appStore.activeTabPath)
   }
 }
@@ -88,6 +99,7 @@ const modules = computed<ModuleItem[]>(() => {
 <style scoped>
 .app-sidebar {
   width: var(--sidebar-width);
+  height: 100%;
   flex-shrink: 0;
   border-right: 1px solid var(--sidebar-border);
   background: var(--sidebar-bg);
@@ -96,6 +108,7 @@ const modules = computed<ModuleItem[]>(() => {
   align-items: center;
   padding: 16px 0 24px;
   gap: 20px;
+  overflow: hidden;
 }
 
 .brand {

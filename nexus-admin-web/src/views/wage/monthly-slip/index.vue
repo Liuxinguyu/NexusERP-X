@@ -33,7 +33,7 @@
 
     <!-- 表格 -->
     <el-card class="table-card" shadow="never">
-      <el-table :data="tableData" stripe v-loading="loading">
+      <el-table :data="tableData" stripe v-loading="loading" height="100%">
         <el-table-column prop="slipNo" label="工资单号" min-width="150" />
         <el-table-column prop="employeeName" label="员工姓名" width="120" />
         <el-table-column prop="yearMonth" label="年月" width="100" align="center" />
@@ -92,7 +92,7 @@
     </el-card>
 
     <!-- 查看明细弹窗 -->
-    <el-dialog v-model="detailVisible" title="工资单明细" width="700px" destroy-on-close>
+    <el-dialog :append-to-body="true" v-model="detailVisible" title="工资单明细" width="700px" destroy-on-close>
       <el-descriptions :column="2" border>
         <el-descriptions-item label="工资单号">{{ detailRow?.slipNo }}</el-descriptions-item>
         <el-descriptions-item label="员工姓名">{{ detailRow?.employeeName }}</el-descriptions-item>
@@ -118,7 +118,7 @@
     </el-dialog>
 
     <!-- 编辑弹窗 -->
-    <el-dialog v-model="editVisible" title="编辑工资单" width="640px" destroy-on-close @closed="handleEditClosed">
+    <el-dialog :append-to-body="true" v-model="editVisible" title="编辑工资单" width="640px" destroy-on-close @closed="handleEditClosed">
       <el-form ref="formRef" :model="editForm" :rules="editFormRules" label-width="100px">
         <el-row :gutter="16">
           <el-col :span="12">
@@ -165,7 +165,7 @@
     </el-dialog>
 
     <!-- 生成工资单弹窗 -->
-    <el-dialog v-model="generateVisible" title="生成工资单" width="420px" destroy-on-close>
+    <el-dialog :append-to-body="true" v-model="generateVisible" title="生成工资单" width="420px" destroy-on-close>
       <el-form ref="generateFormRef" :model="generateForm" :rules="generateFormRules" label-width="80px">
         <el-form-item label="年份" prop="year">
           <el-input-number v-model="generateForm.year" :min="2000" :max="2100" style="width: 100%" />
@@ -411,8 +411,20 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.monthly-slip-page { padding: 16px; }
-.search-card { margin-bottom: 12px; }
+.monthly-slip-page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 16px;
+  gap: 12px;
+}
+.search-card { flex-shrink: 0; }
+.table-card {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
 .net-wage { color: #f56c6c; font-weight: 600; }
 .pagination {
   margin-top: 16px;

@@ -59,7 +59,7 @@
     </el-card>
 
     <!-- 查看明细对话框 -->
-    <el-dialog v-model="detailVisible" title="付款明细" width="600px" destroy-on-close>
+    <el-dialog :append-to-body="true" v-model="detailVisible" title="付款明细" width="600px" destroy-on-close>
       <el-table :data="recordList" stripe size="small">
         <el-table-column prop="id" label="ID" width="80" />
         <el-table-column prop="paidAmount" label="付款金额" width="120" align="right">
@@ -72,7 +72,7 @@
     </el-dialog>
 
     <!-- 登记付款对话框 -->
-    <el-dialog v-model="recordDialogVisible" title="登记付款" width="500px" destroy-on-close>
+    <el-dialog :append-to-body="true" v-model="recordDialogVisible" title="登记付款" width="500px" destroy-on-close>
       <el-form :model="recordForm" label-width="100px">
         <el-form-item label="付款金额" required>
           <el-input-number v-model="recordForm.paidAmount" :min="0" :precision="2" style="width:100%" />
@@ -189,6 +189,13 @@ onMounted(() => loadData())
 </script>
 
 <style scoped>
-.page-container { padding: 16px; }
-.toolbar { margin-bottom: 12px; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.page-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 16px;
+  gap: 12px;
+}
+.toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 </style>

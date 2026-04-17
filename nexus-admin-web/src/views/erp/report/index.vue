@@ -263,9 +263,17 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.page-container { padding: 0; }
-.query-card { margin-bottom: 16px; }
-.section-row { margin-bottom: 16px; }
+.page-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 16px;
+  gap: 16px;
+}
+.query-card { flex-shrink: 0; }
+.section-row { flex-shrink: 0; }
 .section-card { border-radius: var(--card-radius); }
 .card-header { font-weight: 600; color: #303133; font-size: 14px; }
 .chart-container { width: 100%; height: 220px; margin-bottom: 8px; }

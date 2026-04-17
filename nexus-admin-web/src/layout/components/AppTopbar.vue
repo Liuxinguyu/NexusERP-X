@@ -70,6 +70,7 @@ const userInitial = computed(() => (props.username?.[0] || '?').toUpperCase())
 <style scoped>
 .app-topbar {
   height: var(--header-height);
+  flex-shrink: 0;
   border-bottom: 1px solid var(--header-border);
   background: var(--header-bg);
   backdrop-filter: blur(10px);
