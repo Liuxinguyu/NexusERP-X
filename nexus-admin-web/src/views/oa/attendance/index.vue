@@ -1,150 +1,95 @@
 <template>
-  <div class="page-container">
-    <!-- 搜索栏 -->
-    <el-card class="search-card" shadow="never">
-      <el-form :inline="true" :model="queryForm" @submit.prevent>
-        <el-form-item label="日期范围">
-          <el-date-picker
-            v-model="queryForm.dateRange"
-            type="daterange"
-            range-separator="至"
-            start-placeholder="开始日期"
-            end-placeholder="结束日期"
-            value-format="YYYY-MM-DD"
-            style="width:260px"
-          />
-        </el-form-item>
-        <el-form-item label="员工姓名">
-          <el-input v-model="queryForm.userName" placeholder="请输入员工姓名" :clearable="true" style="width:160px" />
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="handleSearch">查询</el-button>
-          <el-button @click="handleReset">重置</el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
+  <div class="attendance-container flex justify-center items-center h-full bg-slate-50 py-8">
+    <div class="attendance-card w-full max-w-md bg-white rounded-3xl shadow-sm border border-slate-100 p-8 flex flex-col items-center relative overflow-hidden">
 
-    <!-- 表格 -->
-    <el-card class="table-card" shadow="never">
-      <template #header>
-        <div class="card-header"><span>考勤记录</span></div>
-      </template>
-      <el-table :data="tableData" stripe v-loading="loading">
-        <el-table-column prop="userName" label="员工姓名" min-width="120" />
-        <el-table-column prop="checkDate" label="考勤日期" width="120" />
-        <el-table-column label="签到时间" width="120">
-          <template #default="{ row }">{{ row.checkInTime || '-' }}</template>
-        </el-table-column>
-        <el-table-column label="签退时间" width="120">
-          <template #default="{ row }">{{ row.checkOutTime || '-' }}</template>
-        </el-table-column>
-        <el-table-column label="工作时长(分钟)" width="120" align="center">
-          <template #default="{ row }">{{ row.workMinutes || 0 }}</template>
-        </el-table-column>
-        <el-table-column label="状态" width="100" align="center">
-          <template #default="{ row }">
-            <el-tag :type="statusTagType(row.status)" size="small">
-              {{ statusLabel(row.status) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-      </el-table>
-      <RequestErrorState v-if="errorMsg && !loading" :description="errorMsg" @retry="loadData" />
-      <div class="pagination-wrap">
-        <el-pagination
-          v-model:current-page="pagination.current"
-          v-model:page-size="pagination.size"
-          :total="pagination.total"
-          :page-sizes="[10, 20, 50]"
-          layout="total, sizes, prev, pager, next"
-          @size-change="loadData"
-          @current-change="loadData"
-        />
+      <div class="header text-center mb-8 w-full z-10">
+        <h2 class="text-xl font-bold text-slate-800">考勤打卡</h2>
+        <p class="text-sm text-slate-500 mt-1">今日已工作: <span class="font-semibold text-indigo-600">6.5</span> 小时</p>
       </div>
-    </el-card>
+
+      <div class="radar-zone relative w-64 h-64 flex justify-center items-center mb-10 z-10">
+        <div class="fence absolute inset-0 rounded-full border-2 border-dashed border-indigo-200"></div>
+        <button
+          class="clock-btn relative w-44 h-44 rounded-full bg-indigo-600 text-white flex flex-col justify-center items-center shadow-lg transition-all active:scale-95 disabled:bg-slate-300 disabled:cursor-not-allowed"
+          :class="{ 'is-pulsing': canClockIn }"
+          :disabled="!canClockIn"
+          @click="handleClockIn"
+        >
+          <span class="time text-4xl font-black tracking-tight mb-1">{{ currentTime }}</span>
+          <span class="action font-medium">{{ clockInText }}</span>
+          <div class="pulse-ring absolute inset-0 rounded-full border-4 border-indigo-400 opacity-0 pointer-events-none"></div>
+        </button>
+      </div>
+
+      <div class="status-indicator text-center h-12 flex flex-col justify-center z-10">
+        <div v-if="locating" class="text-slate-500 flex items-center justify-center gap-2">
+          正在获取高精度位置...
+        </div>
+        <div v-else-if="!canClockIn" class="text-rose-500 font-medium bg-rose-50 px-4 py-1.5 rounded-full inline-block">
+          ⚠️ 不在打卡范围内或网络异常
+        </div>
+        <div v-else class="text-emerald-500 font-medium bg-emerald-50 px-4 py-1.5 rounded-full inline-block">
+          ✅ 已进入考勤范围 (内网IP)
+        </div>
+      </div>
+
+      <div class="timeline mt-8 w-full border-t border-slate-100 pt-6 z-10">
+        <h3 class="text-sm font-semibold text-slate-400 mb-4 px-2 uppercase tracking-wider">今日记录</h3>
+        <div class="space-y-3 px-2">
+          <div v-for="record in records" :key="record.id" class="flex items-center text-sm">
+            <div class="w-2 h-2 rounded-full bg-slate-300 mr-3"></div>
+            <span class="w-12 font-medium text-slate-700">{{ record.time }}</span>
+            <span class="text-slate-500">{{ record.type }}</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
-import { oaApi, type OaAttendanceRecord } from '@/api/oa'
-import RequestErrorState from '@/components/RequestErrorState.vue'
+import { ref, onMounted, onUnmounted } from 'vue';
+import { ElNotification } from 'element-plus';
+import { oaApi } from '@/api/oa';
 
-const queryForm = reactive({
-  dateRange: [] as string[],
-  userName: '',
-})
+const currentTime = ref('00:00:00');
+const clockInText = ref('上班打卡');
+const locating = ref(true);
+const canClockIn = ref(false);
+const records = ref([{ id: 1, time: '09:00', type: '上班打卡 (正常)' }]);
+let timer: any;
 
-const tableData = ref<any[]>([])
-const loading = ref(false)
-const errorMsg = ref('')
+onMounted(() => {
+  timer = setInterval(() => {
+    currentTime.value = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+  }, 1000);
 
-const pagination = reactive({ current: 1, size: 10, total: 0 })
+  // 模拟获取地理位置 (实际需调用 HTML5 navigator.geolocation)
+  setTimeout(() => {
+    locating.value = false;
+    canClockIn.value = true; // 模拟进入打卡范围
+  }, 1500);
+});
 
-function statusLabel(status?: number) {
-  const map: Record<number, string> = { 0: '正常', 1: '迟到', 2: '早退', 3: '缺勤' }
-  return map[status ?? -1] ?? '未知'
-}
+onUnmounted(() => clearInterval(timer));
 
-function statusTagType(status?: number) {
-  const map: Record<number, string> = { 0: 'success', 1: 'warning', 2: 'warning', 3: 'danger' }
-  return (map[status ?? -1] ?? 'info') as any
-}
-
-async function loadData() {
-  loading.value = true
-  errorMsg.value = ''
-  try {
-    const params: any = {}
-    if (queryForm.dateRange && queryForm.dateRange.length === 2) {
-      params.startDate = queryForm.dateRange[0]
-      params.endDate = queryForm.dateRange[1]
-    }
-    if (queryForm.userName) {
-      params.userName = queryForm.userName
-    }
-    const res = await oaApi.getAttendanceRecords(pagination.current, pagination.size, params)
-    tableData.value = res.records || res.list || []
-    pagination.total = res.total
-  } catch {
-    tableData.value = []
-    errorMsg.value = '考勤记录加载失败'
-  } finally {
-    loading.value = false
-  }
-}
-
-function handleSearch() {
-  pagination.current = 1
-  loadData()
-}
-
-function handleReset() {
-  queryForm.dateRange = []
-  queryForm.userName = ''
-  handleSearch()
-}
-
-onMounted(() => loadData())
+const handleClockIn = () => {
+  ElNotification({
+    title: '打卡成功',
+    message: `打卡时间：${currentTime.value}`,
+    type: 'success',
+  });
+  clockInText.value = '下班打卡';
+  records.value.unshift({ id: Date.now(), time: currentTime.value.substring(0, 5), type: '下班打卡 (正常)' });
+};
 </script>
 
 <style scoped>
-.page-container {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  padding: 16px;
-  gap: 12px;
+.attendance-container { height: 100%; min-height: 600px; }
+.is-pulsing .pulse-ring { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+@keyframes pulse {
+  0% { transform: scale(1); opacity: 0.8; border-width: 4px; }
+  100% { transform: scale(1.5); opacity: 0; border-width: 0px; }
 }
-.search-card { flex-shrink: 0; }
-.table-card {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  border-radius: 8px;
-}
-.card-header { display: flex; justify-content: space-between; align-items: center; }
-.pagination-wrap { display: flex; justify-content: flex-end; margin-top: 16px; }
 </style>

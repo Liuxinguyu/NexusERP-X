@@ -1,4 +1,4 @@
-import { get, post, put, del } from './request'
+import request, { get, post, put, del } from './request'
 
 function withPageParams(current: number, size: number, extra?: Record<string, unknown>) {
   return { current, size, page: current, pageNum: current, pageSize: size, ...(extra || {}) }
@@ -253,4 +253,9 @@ export const oaApi = {
   uploadFile: (formData: FormData) =>
     post('/oa/files/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
   deleteFile: (id: number) => del(`/oa/files/${id}`),
+
+  // Attendance Clock-in
+  getAttendanceTodayStatus: () => request.get('/oa/attendance/today'),
+  submitClockIn: (data: { lat: number; lng: number; type: string; deviceIp?: string }) =>
+    request.post('/oa/attendance/clock-in', data),
 }

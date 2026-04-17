@@ -60,22 +60,24 @@ function onDashboard() {
   emit('select-dashboard')
 }
 
-// 父级模块 → 枢纽页路由（点击父节点时优先跳转到此）
-const moduleHubMap: Record<string, string> = {
-  '/system': '/system/hub',
-  '/erp':    '/erp/hub',
-  '/oa':     '/oa/hub',
+function handleParentClick(path: string) {
+  router.push(path)
 }
 
 function handleModuleClick(base: string) {
   appStore.setActiveModule(base, props.menus)
-  // 优先跳转到模块枢纽页，实现"父菜单 → 枢纽大厅"的双向结合
   const hubPath = moduleHubMap[base]
   if (hubPath) {
     router.push(hubPath)
   } else if (appStore.activeTabPath) {
     router.push(appStore.activeTabPath)
   }
+}
+
+const moduleHubMap: Record<string, string> = {
+  '/system': '/system/hub',
+  '/erp':    '/erp/hub',
+  '/oa':     '/oa/hub',
 }
 
 type ModuleItem = { base: string; label: string; icon: string }
