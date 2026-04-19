@@ -25,7 +25,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -33,7 +32,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Set;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
@@ -54,7 +52,6 @@ public class AuthApplicationService {
     private final LoginCaptchaValidator loginCaptchaValidator;
     private final SysLoginLogApplicationService sysLoginLogApplicationService;
     private final OnlineUserRedisService onlineUserRedisService;
-    private final StringRedisTemplate stringRedisTemplate;
 
     public AuthApplicationService(SysUserMapper userMapper,
                                   SysUserShopRoleMapper userShopRoleMapper,
@@ -68,8 +65,7 @@ public class AuthApplicationService {
                                   SysOrgApplicationService sysOrgApplicationService,
                                   LoginCaptchaValidator loginCaptchaValidator,
                                   SysLoginLogApplicationService sysLoginLogApplicationService,
-                                  OnlineUserRedisService onlineUserRedisService,
-                                  StringRedisTemplate stringRedisTemplate) {
+                                  OnlineUserRedisService onlineUserRedisService) {
         this.userMapper = userMapper;
         this.userShopRoleMapper = userShopRoleMapper;
         this.shopMapper = shopMapper;
@@ -83,7 +79,6 @@ public class AuthApplicationService {
         this.loginCaptchaValidator = loginCaptchaValidator;
         this.sysLoginLogApplicationService = sysLoginLogApplicationService;
         this.onlineUserRedisService = onlineUserRedisService;
-        this.stringRedisTemplate = stringRedisTemplate;
     }
 
     public AuthDtos.PreAuthLoginResponse login(AuthDtos.LoginRequest request, HttpServletRequest http) {
@@ -487,7 +482,7 @@ public class AuthApplicationService {
             List<SysMenu> menus = menuMapper.selectList(new LambdaQueryWrapper<SysMenu>()
                     .in(SysMenu::getId, menuIds)
                     .eq(SysMenu::getDelFlag, 0)
-                    .eq(SysMenu::getStatus, 1)); // Only add perms from enabled menus
+                    .eq(SysMenu::getStatus, 0)); // Only add perms from enabled menus
             for (SysMenu menu : menus) {
                 if (menu.getPerms() != null && !menu.getPerms().isBlank()) {
                     String p = menu.getPerms().trim();
@@ -499,14 +494,14 @@ public class AuthApplicationService {
 
         // Cache permissions to Redis for @ss.hasPermi usage
         String cacheKey = "login:permissions:" + userId;
-        if (stringRedisTemplate != null) {
-            stringRedisTemplate.delete(cacheKey); // clear old
+        if (redisTemplate != null) {
+            redisTemplate.delete(cacheKey); // clear old
             if (roles.stream().anyMatch(r -> "ADMIN".equalsIgnoreCase(r.getRoleCode()))) {
                 permsSet.add("*:*:*"); // Admin gets all permissions wildcard
             }
             if (!permsSet.isEmpty()) {
-                stringRedisTemplate.opsForSet().add(cacheKey, permsSet.toArray(new String[0]));
-                stringRedisTemplate.expire(cacheKey, java.time.Duration.ofDays(7));
+                redisTemplate.opsForSet().add(cacheKey, permsSet.toArray(new String[0]));
+                redisTemplate.expire(cacheKey, java.time.Duration.ofDays(7));
             }
         }
 

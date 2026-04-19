@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -40,43 +41,66 @@ public class SysOrgApplicationService {
     }
 
     /**
-     * 返回以 {@code rootOrgId} 为根的子树内全部组织 id（含根），按 {@link SysOrg#getParentId()} 建树。
+     * 返回以 {@code rootOrgId} 为根的子树内全部组织 id（含根）。
+     * 优先基于已维护的 {@code ancestors} 字段做一次查询，避免因内存建树遗漏无序数据；
+     * 若部分历史数据的 ancestors 未刷新，再回退到 parentId 关系做兜底遍历。
      */
     public List<Long> listSelfAndDescendantOrgIds(Long tenantId, Long rootOrgId) {
         if (tenantId == null || rootOrgId == null) {
             return List.of();
         }
+
+        SysOrg root = orgMapper.selectById(rootOrgId);
+        if (root == null || !Objects.equals(root.getTenantId(), tenantId)
+                || (root.getDelFlag() != null && root.getDelFlag() == 1)) {
+            return List.of();
+        }
+
+        Set<Long> out = new LinkedHashSet<>();
+        out.add(rootOrgId);
+
+        String rootToken = "," + rootOrgId + ",";
         List<SysOrg> all = orgMapper.selectList(new LambdaQueryWrapper<SysOrg>()
                 .eq(SysOrg::getTenantId, tenantId)
                 .eq(SysOrg::getDelFlag, 0)
-                .eq(SysOrg::getStatus, 1));
-        if (all.isEmpty()) {
-            return List.of(rootOrgId);
+                .orderByAsc(SysOrg::getParentId)
+                .orderByAsc(SysOrg::getSort)
+                .orderByAsc(SysOrg::getId));
+
+        for (SysOrg org : all) {
+            if (org.getId() == null) {
+                continue;
+            }
+            String chain = "," + Optional.ofNullable(org.getAncestors()).orElse("") + ",";
+            if (org.getId().equals(rootOrgId) || chain.contains(rootToken)) {
+                out.add(org.getId());
+            }
         }
 
         Map<Long, List<Long>> children = new HashMap<>();
-        for (SysOrg o : all) {
-            long pid = Optional.ofNullable(o.getParentId()).orElse(0L);
-            children.computeIfAbsent(pid, k -> new ArrayList<>()).add(o.getId());
-        }
-
-        List<Long> out = new ArrayList<>();
-        Set<Long> seen = new HashSet<>();
-        Deque<Long> dq = new ArrayDeque<>();
-        dq.add(rootOrgId);
-        while (!dq.isEmpty()) {
-            Long id = dq.poll();
-            if (id == null || !seen.add(id)) {
+        for (SysOrg org : all) {
+            if (org.getId() == null) {
                 continue;
             }
-            out.add(id);
-            for (Long c : children.getOrDefault(id, List.of())) {
-                if (c != null) {
-                    dq.add(c);
+            Long parentId = Optional.ofNullable(org.getParentId()).orElse(0L);
+            children.computeIfAbsent(parentId, k -> new ArrayList<>()).add(org.getId());
+        }
+
+        Deque<Long> queue = new ArrayDeque<>();
+        queue.add(rootOrgId);
+        while (!queue.isEmpty()) {
+            Long current = queue.poll();
+            if (current == null) {
+                continue;
+            }
+            for (Long childId : children.getOrDefault(current, List.of())) {
+                if (childId != null && out.add(childId)) {
+                    queue.add(childId);
                 }
             }
         }
-        return out.isEmpty() ? List.of(rootOrgId) : out;
+
+        return new ArrayList<>(out);
     }
 
     /**

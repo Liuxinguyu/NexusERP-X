@@ -10,14 +10,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
@@ -25,38 +18,56 @@ import java.util.List;
 @RequestMapping("/api/v1/system/users")
 @RequiredArgsConstructor
 @Validated
-@PreAuthorize("hasRole('ADMIN')")
+
 public class SysUserAdminController {
 
     private final SysUserAdminApplicationService userAdminApplicationService;
 
+    @PreAuthorize("@ss.hasPermi('system:user:list')")
     @GetMapping("/page")
     public Result<IPage<SysUser>> page(
             @RequestParam(defaultValue = "1") long current,
             @RequestParam(defaultValue = "10") long size,
-            @RequestParam(required = false) String username) {
-        return Result.ok(userAdminApplicationService.page(current, size, username));
+            @RequestParam(required = false) String username,
+            @RequestParam(required = false) String nickname,
+            @RequestParam(required = false) Long orgId) {
+        return Result.ok(userAdminApplicationService.page(current, size, username, nickname, orgId));
     }
 
-    @OpLog(module = "用户管理", type = "新增", excludeParamNames = {"password", "passwordHash"})
+    @GetMapping("/detail/{id}")
+    public Result<SysUser> getById(@PathVariable Long id) {
+        return Result.ok(userAdminApplicationService.getById(id));
+    }
+
+    @OpLog(module = "用户管理", type = "新增")
     @PostMapping
+    @PreAuthorize("@ss.hasPermi('system:user:add')")
     public Result<Long> create(@Valid @RequestBody SystemAdminDtos.UserCreateRequest req) {
         return Result.ok(userAdminApplicationService.create(req));
     }
 
-    @OpLog(module = "用户管理", type = "修改", excludeParamNames = {"password", "passwordHash"})
+    @OpLog(module = "用户管理", type = "修改")
     @PutMapping("/{id}")
+    @PreAuthorize("@ss.hasPermi('system:user:edit')")
     public Result<Void> update(@PathVariable Long id, @Valid @RequestBody SystemAdminDtos.UserUpdateRequest req) {
         userAdminApplicationService.update(id, req);
         return Result.ok();
     }
+    
+    @OpLog(module = "用户管理", type = "删除")
+    @DeleteMapping("/{id}")
+    @PreAuthorize("@ss.hasPermi('system:user:remove')")
+    public Result<Void> delete(@PathVariable Long id) {
+        userAdminApplicationService.delete(id);
+        return Result.ok();
+    }
 
     @GetMapping("/{id}/shop-roles")
-    public Result<List<SystemAdminDtos.UserShopRoleRow>> shopRoles(@PathVariable Long id) {
+    public Result<List<SystemAdminDtos.UserShopRoleItem>> listShopRoles(@PathVariable Long id) {
         return Result.ok(userAdminApplicationService.listUserShopRoles(id));
     }
 
-    @OpLog(module = "用户管理", type = "分配角色")
+    @OpLog(module = "用户管理", type = "分配店铺角色")
     @PutMapping("/{id}/shop-roles")
     public Result<Void> saveShopRoles(@PathVariable Long id, @Valid @RequestBody SystemAdminDtos.UserShopRoleSaveRequest req) {
         userAdminApplicationService.saveUserShopRoles(id, req);

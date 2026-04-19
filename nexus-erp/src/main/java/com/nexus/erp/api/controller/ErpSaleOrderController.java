@@ -23,7 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/v1/erp/sale-order")
+@RequestMapping("/api/v1/erp/sale-orders")
 @RequiredArgsConstructor
 @Validated
 public class ErpSaleOrderController {

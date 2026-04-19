@@ -6,12 +6,9 @@ import com.nexus.common.context.DataScopeContext;
 import lombok.extern.slf4j.Slf4j;
 import net.sf.jsqlparser.JSQLParserException;
 import net.sf.jsqlparser.expression.Expression;
-import net.sf.jsqlparser.expression.LongValue;
 import net.sf.jsqlparser.expression.Parenthesis;
 import net.sf.jsqlparser.expression.operators.conditional.AndExpression;
-import net.sf.jsqlparser.expression.operators.relational.EqualsTo;
 import net.sf.jsqlparser.parser.CCJSqlParserUtil;
-import net.sf.jsqlparser.schema.Column;
 import net.sf.jsqlparser.schema.Table;
 import net.sf.jsqlparser.statement.Statement;
 import net.sf.jsqlparser.statement.select.FromItem;
@@ -108,9 +105,6 @@ public class DataScopeInterceptor implements InnerInterceptor {
         if (ds == null || ds == 1) {
             return;
         }
-        if (ds == 2) {
-            return;
-        }
 
         String sql = boundSql.getSql();
         if (sql == null) {
@@ -146,32 +140,47 @@ public class DataScopeInterceptor implements InnerInterceptor {
         }
     }
 
-    private static Expression buildFilter(int ds, String mainTable, String alias) {
+    private static Expression buildFilter(int ds, String mainTable, String alias) throws JSQLParserException {
         Long userId = DataScopeContext.getUserId();
         Long deptId = DataScopeContext.getDeptId();
-        if (ds == 5) {
-            if (userId == null) {
-                return null;
-            }
-            return qualifiedEq(alias, "create_by", userId);
-        }
-        if (ds == 3 || ds == 4) {
-            if (deptId == null) {
-                return null;
-            }
-            if ("sys_user".equals(mainTable)) {
-                return qualifiedEq(alias, COL_MAIN_ORG, deptId);
-            }
-            return qualifiedEq(alias, COL_ORG, deptId);
-        }
-        return null;
-    }
+        Long roleId = DataScopeContext.getRoleId();
 
-    private static Expression qualifiedEq(String alias, String column, long value) {
-        EqualsTo eq = new EqualsTo();
-        eq.setLeftExpression(new Column(alias + "." + column));
-        eq.setRightExpression(new LongValue(String.valueOf(value)));
-        return new Parenthesis(eq);
+        if (ds == 5) { // 仅本人数据
+            if (userId == null) {
+                // 如果没有用户信息但要求隔离，返回 1=0 (用 1=0 阻塞)
+                return CCJSqlParserUtil.parseCondExpression("1 = 0");
+            }
+            return CCJSqlParserUtil.parseCondExpression(alias + ".create_by = " + userId);
+        }
+
+        String colName = "sys_user".equals(mainTable) ? COL_MAIN_ORG : COL_ORG;
+
+        if (ds == 3) { // 本部门数据
+            if (deptId == null) {
+                return CCJSqlParserUtil.parseCondExpression("1 = 0");
+            }
+            return CCJSqlParserUtil.parseCondExpression(alias + "." + colName + " = " + deptId);
+        }
+
+        if (ds == 4) { // 本部门及以下数据
+            if (deptId == null) {
+                return CCJSqlParserUtil.parseCondExpression("1 = 0");
+            }
+            // 若依经典实现：使用 id = deptId OR FIND_IN_SET(deptId, ancestors)
+            String cond = String.format("%s.%s IN ( SELECT id FROM sys_org WHERE id = %d OR FIND_IN_SET(%d, ancestors) )", alias, colName, deptId, deptId);
+            return CCJSqlParserUtil.parseCondExpression(cond);
+        }
+
+        if (ds == 2) { // 自定义数据权限
+            if (roleId == null) {
+                return CCJSqlParserUtil.parseCondExpression("1 = 0");
+            }
+            // 若依经典实现：使用 sys_role_org 中间表关联
+            String cond = String.format("%s.%s IN ( SELECT org_id FROM sys_role_org WHERE role_id = %d )", alias, colName, roleId);
+            return CCJSqlParserUtil.parseCondExpression(cond);
+        }
+
+        return null;
     }
 
     private static String primaryTableName(PlainSelect ps) {

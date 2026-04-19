@@ -98,7 +98,7 @@ public class CaptchaImageService {
         try {
             ImageIO.write(image, "png", baos);
             byte[] bytes = baos.toByteArray();
-            return "data:image/png;base64," + Base64.getEncoder().encodeToString(bytes);
+            return Base64.getEncoder().encodeToString(bytes);
         } catch (Exception e) {
             throw new RuntimeException("Failed to generate captcha image", e);
         }

@@ -73,6 +73,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             if (principal.getTenantId() != null) {
                 TenantContext.setTenantId(principal.getTenantId());
             }
+            GatewayUserContext.setUserId(principal.getUserId());
+            GatewayUserContext.setUsername(principal.getUsername());
             OrgContext.setOrgId(principal.getOrgId());
             OrgContext.setShopId(principal.getShopId());
             if (principal.getDataScope() != null) {

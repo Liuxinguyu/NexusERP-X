@@ -10,6 +10,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -29,12 +30,14 @@ public class SysShopController {
 
     private final SysShopApplicationService shopApplicationService;
 
+    @PreAuthorize("@ss.hasPermi('system:shop:list')")
     @GetMapping("/page")
     public Result<IPage<SysShop>> page(
             @RequestParam(defaultValue = "1") long current,
             @RequestParam(defaultValue = "10") long size,
-            @RequestParam(required = false) String shopName) {
-        return Result.ok(shopApplicationService.page(current, size, shopName));
+            @RequestParam(required = false) String shopName,
+            @RequestParam(required = false) Long orgId) {
+        return Result.ok(shopApplicationService.page(current, size, shopName, orgId));
     }
 
     @GetMapping("/options")
@@ -42,16 +45,21 @@ public class SysShopController {
         return Result.ok(shopApplicationService.listOptions());
     }
 
+    @GetMapping("/detail/{id}")
+    public Result<SysShop> getById(@PathVariable Long id) {
+        return Result.ok(shopApplicationService.getById(id));
+    }
+
     @OpLog(module = "店铺管理", type = "新增")
     @PostMapping
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@ss.hasPermi('system:shop:add')")
     public Result<Long> create(@Valid @RequestBody SystemAdminDtos.ShopCreateRequest req) {
         return Result.ok(shopApplicationService.create(req));
     }
 
     @OpLog(module = "店铺管理", type = "修改")
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@ss.hasPermi('system:shop:edit')")
     public Result<Void> update(@PathVariable Long id, @Valid @RequestBody SystemAdminDtos.ShopUpdateRequest req) {
         shopApplicationService.update(id, req);
         return Result.ok();
@@ -59,9 +67,16 @@ public class SysShopController {
 
     @OpLog(module = "店铺管理", type = "状态变更")
     @PutMapping("/{id}/status")
-    @PreAuthorize("hasRole('ADMIN')")
     public Result<Void> status(@PathVariable Long id, @Valid @RequestBody SystemAdminDtos.ShopStatusRequest req) {
         shopApplicationService.updateStatus(id, req);
+        return Result.ok();
+    }
+
+    @OpLog(module = "店铺管理", type = "删除")
+    @DeleteMapping("/{id}")
+    @PreAuthorize("@ss.hasPermi('system:shop:remove')")
+    public Result<Void> delete(@PathVariable Long id) {
+        shopApplicationService.delete(id);
         return Result.ok();
     }
 }

@@ -1,5 +1,6 @@
+cat << 'YML' > ../NexusERP-X/nexus-erp/src/main/resources/application.yml
 server:
-  port: 8084
+  port: 8082
 
 springdoc:
   swagger-ui:
@@ -15,7 +16,7 @@ knife4j:
 
 spring:
   application:
-    name: nexus-wage
+    name: nexus-erp
   profiles:
     active: dev
 
@@ -30,10 +31,10 @@ spring:
       strict: false
       datasource:
         master:
-          driver-class-name: com.mysql.cj.jdbc.Driver
-          url: jdbc:mysql://127.0.0.1:3306/nexus_dev?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+          url: jdbc:mysql://127.0.0.1:3306/nexus_dev?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai
           username: root
           password: ""
+          driver-class-name: com.mysql.cj.jdbc.Driver
   sql:
     init:
       mode: never
@@ -64,6 +65,4 @@ management:
     web:
       exposure:
         include: health,info
-  health:
-    db:
-      enabled: false
+YML

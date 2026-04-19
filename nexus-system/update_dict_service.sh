@@ -1,3 +1,8 @@
+#!/bin/bash
+set -e
+
+# Replace SysDictApplicationService.java wholly
+cat << 'INNER_EOF' > /Users/liuxingyu/NexusERP-X/nexus-system/src/main/java/com/nexus/system/application/service/SysDictApplicationService.java
 package com.nexus.system.application.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -67,8 +72,8 @@ public class SysDictApplicationService {
         type.setRemark(req.getRemark());
         type.setCreateTime(LocalDateTime.now());
         type.setUpdateTime(LocalDateTime.now());
-        type.setCreateBy(com.nexus.common.context.GatewayUserContext.getUserId());
-        type.setUpdateBy(com.nexus.common.context.GatewayUserContext.getUserId());
+        type.setCreateBy(TenantContext.getUserId());
+        type.setUpdateBy(TenantContext.getUserId());
         type.setDelFlag(0);
 
         dictTypeMapper.insert(type);
@@ -93,7 +98,7 @@ public class SysDictApplicationService {
         if (req.getStatus() != null) type.setStatus(req.getStatus());
         type.setRemark(req.getRemark());
         type.setUpdateTime(LocalDateTime.now());
-        type.setUpdateBy(com.nexus.common.context.GatewayUserContext.getUserId());
+        type.setUpdateBy(TenantContext.getUserId());
 
         dictTypeMapper.updateById(type);
     }
@@ -110,7 +115,7 @@ public class SysDictApplicationService {
 
         type.setDelFlag(1);
         type.setUpdateTime(LocalDateTime.now());
-        type.setUpdateBy(com.nexus.common.context.GatewayUserContext.getUserId());
+        type.setUpdateBy(TenantContext.getUserId());
         dictTypeMapper.updateById(type);
     }
 
@@ -143,10 +148,12 @@ public class SysDictApplicationService {
         item.setSort(req.getSort() != null ? req.getSort() : 0);
         item.setStatus(req.getStatus() != null ? req.getStatus() : 1);
         item.setRemark(req.getRemark());
+        item.setCssClass(req.getCssClass());
+        item.setListClass(req.getListClass());
         item.setCreateTime(LocalDateTime.now());
         item.setUpdateTime(LocalDateTime.now());
-        item.setCreateBy(com.nexus.common.context.GatewayUserContext.getUserId());
-        item.setUpdateBy(com.nexus.common.context.GatewayUserContext.getUserId());
+        item.setCreateBy(TenantContext.getUserId());
+        item.setUpdateBy(TenantContext.getUserId());
         item.setDelFlag(0);
 
         dictItemMapper.insert(item);
@@ -161,8 +168,10 @@ public class SysDictApplicationService {
         if (req.getSort() != null) item.setSort(req.getSort());
         if (req.getStatus() != null) item.setStatus(req.getStatus());
         item.setRemark(req.getRemark());
+        item.setCssClass(req.getCssClass());
+        item.setListClass(req.getListClass());
         item.setUpdateTime(LocalDateTime.now());
-        item.setUpdateBy(com.nexus.common.context.GatewayUserContext.getUserId());
+        item.setUpdateBy(TenantContext.getUserId());
 
         dictItemMapper.updateById(item);
         evictCache(item.getTenantId(), item.getDictType());
@@ -172,7 +181,7 @@ public class SysDictApplicationService {
         SysDictItem item = getItem(id);
         item.setDelFlag(1);
         item.setUpdateTime(LocalDateTime.now());
-        item.setUpdateBy(com.nexus.common.context.GatewayUserContext.getUserId());
+        item.setUpdateBy(TenantContext.getUserId());
         dictItemMapper.updateById(item);
         evictCache(item.getTenantId(), item.getDictType());
     }
@@ -206,3 +215,5 @@ public class SysDictApplicationService {
         return tid;
     }
 }
+INNER_EOF
+

@@ -1,3 +1,8 @@
+#!/bin/bash
+set -e
+
+# Update SysShopApplicationService
+cat << 'INNER_EOF' > /Users/liuxingyu/NexusERP-X/nexus-system/src/main/java/com/nexus/system/application/service/SysShopApplicationService.java
 package com.nexus.system.application.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -25,27 +30,18 @@ public class SysShopApplicationService {
 
     private final SysShopMapper shopMapper;
     private final SysUserShopRoleMapper userShopRoleMapper;
-    private final SysOrgApplicationService sysOrgApplicationService;
 
-    public SysShopApplicationService(SysShopMapper shopMapper,
-                                     SysUserShopRoleMapper userShopRoleMapper,
-                                     SysOrgApplicationService sysOrgApplicationService) {
+    public SysShopApplicationService(SysShopMapper shopMapper, SysUserShopRoleMapper userShopRoleMapper) {
         this.shopMapper = shopMapper;
         this.userShopRoleMapper = userShopRoleMapper;
-        this.sysOrgApplicationService = sysOrgApplicationService;
     }
 
-    public IPage<SysShop> page(long current, long size, String shopName, Long orgId) {
+    public IPage<SysShop> page(long current, long size, String shopName) {
         Long tenantId = requireTenantId();
-        List<Long> orgIds = orgId == null
-                ? List.of()
-                : sysOrgApplicationService.listSelfAndDescendantOrgIds(tenantId, orgId);
-
         LambdaQueryWrapper<SysShop> wrapper = new LambdaQueryWrapper<SysShop>()
                 .eq(SysShop::getTenantId, tenantId)
                 .eq(SysShop::getDelFlag, 0)
                 .like(StringUtils.hasText(shopName), SysShop::getShopName, shopName)
-                .in(orgId != null && !orgIds.isEmpty(), SysShop::getOrgId, orgIds)
                 .orderByDesc(SysShop::getId);
         return shopMapper.selectPage(new Page<>(current, size), wrapper);
     }
@@ -96,8 +92,8 @@ public class SysShopApplicationService {
         shop.setStatus(req.getStatus() != null ? req.getStatus() : 1);
         shop.setCreateTime(LocalDateTime.now());
         shop.setUpdateTime(LocalDateTime.now());
-        shop.setCreateBy(com.nexus.common.context.GatewayUserContext.getUserId());
-        shop.setUpdateBy(com.nexus.common.context.GatewayUserContext.getUserId());
+        shop.setCreateBy(TenantContext.getUserId());
+        shop.setUpdateBy(TenantContext.getUserId());
         shop.setDelFlag(0);
 
         shopMapper.insert(shop);
@@ -123,7 +119,7 @@ public class SysShopApplicationService {
         shop.setOrgId(req.getOrgId());
         shop.setShopType(req.getShopType() != null ? req.getShopType() : 1);
         shop.setUpdateTime(LocalDateTime.now());
-        shop.setUpdateBy(com.nexus.common.context.GatewayUserContext.getUserId());
+        shop.setUpdateBy(TenantContext.getUserId());
 
         shopMapper.updateById(shop);
     }
@@ -133,7 +129,7 @@ public class SysShopApplicationService {
         SysShop shop = getById(id);
         shop.setStatus(req.getStatus());
         shop.setUpdateTime(LocalDateTime.now());
-        shop.setUpdateBy(com.nexus.common.context.GatewayUserContext.getUserId());
+        shop.setUpdateBy(TenantContext.getUserId());
         shopMapper.updateById(shop);
     }
     
@@ -149,7 +145,7 @@ public class SysShopApplicationService {
         
         shop.setDelFlag(1);
         shop.setUpdateTime(LocalDateTime.now());
-        shop.setUpdateBy(com.nexus.common.context.GatewayUserContext.getUserId());
+        shop.setUpdateBy(TenantContext.getUserId());
         shopMapper.updateById(shop);
     }
 
@@ -161,3 +157,6 @@ public class SysShopApplicationService {
         return tid;
     }
 }
+INNER_EOF
+
+# Replace SysShopController endpoints inside it

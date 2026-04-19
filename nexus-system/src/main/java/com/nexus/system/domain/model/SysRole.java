@@ -1,5 +1,6 @@
 package com.nexus.system.domain.model;
 
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
@@ -17,5 +18,9 @@ public class SysRole extends BaseEntity {
     private String roleCode;
     private String roleName;
     private Integer dataScope;
+
+    @TableField(exist = false)
+    private Integer shopScope;
 }
+
 

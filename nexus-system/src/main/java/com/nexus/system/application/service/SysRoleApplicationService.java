@@ -7,146 +7,167 @@ import com.nexus.common.context.TenantContext;
 import com.nexus.common.core.domain.ResultCode;
 import com.nexus.common.exception.BusinessException;
 import com.nexus.system.application.dto.SystemAdminDtos;
-import com.nexus.system.domain.model.SysMenu;
 import com.nexus.system.domain.model.SysRole;
 import com.nexus.system.domain.model.SysRoleMenu;
-import com.nexus.system.infrastructure.mapper.SysMenuMapper;
+import com.nexus.system.domain.model.SysUserShopRole;
 import com.nexus.system.infrastructure.mapper.SysRoleMapper;
 import com.nexus.system.infrastructure.mapper.SysRoleMenuMapper;
-import lombok.RequiredArgsConstructor;
+import com.nexus.system.infrastructure.mapper.SysUserShopRoleMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
-import java.util.ArrayList;
-import java.util.HashSet;
+import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Set;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 @Service
-@RequiredArgsConstructor
 public class SysRoleApplicationService {
 
     private final SysRoleMapper roleMapper;
     private final SysRoleMenuMapper roleMenuMapper;
-    private final SysMenuMapper menuMapper;
+    private final SysUserShopRoleMapper userShopRoleMapper;
+
+    public SysRoleApplicationService(SysRoleMapper roleMapper, SysRoleMenuMapper roleMenuMapper, SysUserShopRoleMapper userShopRoleMapper) {
+        this.roleMapper = roleMapper;
+        this.roleMenuMapper = roleMenuMapper;
+        this.userShopRoleMapper = userShopRoleMapper;
+    }
 
     public IPage<SysRole> page(long current, long size, String roleName, String roleCode) {
-        Page<SysRole> p = new Page<>(current, size);
-        LambdaQueryWrapper<SysRole> w = new LambdaQueryWrapper<>();
-        w.like(StringUtils.hasText(roleName), SysRole::getRoleName, roleName);
-        w.like(StringUtils.hasText(roleCode), SysRole::getRoleCode, roleCode);
-        w.orderByDesc(SysRole::getId);
-        return roleMapper.selectPage(p, w);
+        Long tenantId = requireTenantId();
+        LambdaQueryWrapper<SysRole> wrapper = new LambdaQueryWrapper<SysRole>()
+                .eq(SysRole::getTenantId, tenantId)
+                .eq(SysRole::getDelFlag, 0)
+                .like(StringUtils.hasText(roleName), SysRole::getRoleName, roleName)
+                .like(StringUtils.hasText(roleCode), SysRole::getRoleCode, roleCode)
+                .orderByDesc(SysRole::getId);
+        return roleMapper.selectPage(new Page<>(current, size), wrapper);
     }
 
     public List<SystemAdminDtos.RoleOption> listOptions() {
-        List<SysRole> roles = roleMapper.selectList(new LambdaQueryWrapper<SysRole>()
-                .eq(SysRole::getDelFlag, 0)
-                .orderByAsc(SysRole::getId));
-        List<SystemAdminDtos.RoleOption> out = new ArrayList<>();
-        for (SysRole r : roles) {
-            SystemAdminDtos.RoleOption o = new SystemAdminDtos.RoleOption();
-            o.setId(r.getId());
-            o.setRoleName(r.getRoleName());
-            o.setRoleCode(r.getRoleCode());
-            o.setShopId(r.getShopId());
-            o.setDataScope(r.getDataScope());
-            out.add(o);
+        Long tenantId = requireTenantId();
+        return roleMapper.selectList(new LambdaQueryWrapper<SysRole>()
+                        .eq(SysRole::getTenantId, tenantId)
+                        .eq(SysRole::getDelFlag, 0)
+                        .orderByDesc(SysRole::getId))
+                .stream()
+                .map(r -> {
+                    SystemAdminDtos.RoleOption o = new SystemAdminDtos.RoleOption();
+                    o.setId(r.getId()); 
+                    o.setRoleName(r.getRoleName()); 
+                    o.setRoleCode(r.getRoleCode());
+                    return o;
+                }).collect(Collectors.toList());
+    }
+
+    public SysRole getById(Long id) {
+        Long tenantId = requireTenantId();
+        SysRole role = roleMapper.selectById(id);
+        if (role == null || !Objects.equals(role.getTenantId(), tenantId) || role.getDelFlag() == 1) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "角色不存在");
         }
-        return out;
+        return role;
     }
 
     @Transactional(rollbackFor = Exception.class)
     public Long create(SystemAdminDtos.RoleCreateRequest req) {
-        SysRole r = new SysRole();
-        r.setShopId(req.getShopId());
-        r.setRoleCode(req.getRoleCode());
-        r.setRoleName(req.getRoleName());
-        r.setDataScope(req.getDataScope());
-        roleMapper.insert(r);
-        return r.getId();
+        Long tenantId = requireTenantId();
+        boolean exists = roleMapper.exists(new LambdaQueryWrapper<SysRole>()
+                .eq(SysRole::getTenantId, tenantId)
+                .eq(SysRole::getRoleCode, req.getRoleCode())
+                .eq(SysRole::getDelFlag, 0));
+        if (exists) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "角色编码已存在");
+        }
+
+        SysRole role = new SysRole();
+        role.setTenantId(tenantId);
+        role.setRoleName(req.getRoleName());
+        role.setRoleCode(req.getRoleCode());
+        role.setDataScope(req.getDataScope() != null ? req.getDataScope() : 1);
+        role.setCreateTime(LocalDateTime.now());
+        role.setUpdateTime(LocalDateTime.now());
+        role.setCreateBy(com.nexus.common.context.GatewayUserContext.getUserId());
+        role.setUpdateBy(com.nexus.common.context.GatewayUserContext.getUserId());
+        role.setDelFlag(0);
+
+        roleMapper.insert(role);
+        return role.getId();
     }
 
     @Transactional(rollbackFor = Exception.class)
     public void update(Long id, SystemAdminDtos.RoleUpdateRequest req) {
-        SysRole exist = roleMapper.selectById(id);
-        if (exist == null || (exist.getDelFlag() != null && exist.getDelFlag() == 1)) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "角色不存在");
+        Long tenantId = requireTenantId();
+        SysRole role = getById(id);
+        
+        if (!Objects.equals(role.getRoleCode(), req.getRoleCode())) {
+            boolean exists = roleMapper.exists(new LambdaQueryWrapper<SysRole>()
+                    .eq(SysRole::getTenantId, tenantId)
+                    .eq(SysRole::getRoleCode, req.getRoleCode())
+                    .eq(SysRole::getDelFlag, 0));
+            if (exists) {
+                throw new BusinessException(ResultCode.BAD_REQUEST, "角色编码已存在");
+            }
         }
-        exist.setShopId(req.getShopId());
-        exist.setRoleCode(req.getRoleCode());
-        exist.setRoleName(req.getRoleName());
-        exist.setDataScope(req.getDataScope());
-        roleMapper.updateById(exist);
+
+        role.setRoleName(req.getRoleName());
+        role.setRoleCode(req.getRoleCode());
+        if (req.getDataScope() != null) role.setDataScope(req.getDataScope());
+        role.setUpdateTime(LocalDateTime.now());
+        role.setUpdateBy(com.nexus.common.context.GatewayUserContext.getUserId());
+
+        roleMapper.updateById(role);
+    }
+    
+    @Transactional(rollbackFor = Exception.class)
+    public void delete(Long id) {
+        SysRole role = getById(id);
+        
+        boolean hasUsers = userShopRoleMapper.exists(new LambdaQueryWrapper<SysUserShopRole>()
+                .eq(SysUserShopRole::getRoleId, id));
+        if (hasUsers) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "角色已被分配，无法删除");
+        }
+        
+        role.setDelFlag(1);
+        role.setUpdateTime(LocalDateTime.now());
+        role.setUpdateBy(com.nexus.common.context.GatewayUserContext.getUserId());
+        roleMapper.updateById(role);
     }
 
     public List<Long> listMenuIds(Long roleId) {
-        List<SysRoleMenu> list = roleMenuMapper.selectList(new LambdaQueryWrapper<SysRoleMenu>()
-                .eq(SysRoleMenu::getRoleId, roleId)
-                .eq(SysRoleMenu::getDelFlag, 0));
-        return list.stream().map(SysRoleMenu::getMenuId).collect(Collectors.toList());
+        return roleMenuMapper.selectList(new LambdaQueryWrapper<SysRoleMenu>()
+                        .eq(SysRoleMenu::getRoleId, roleId))
+                .stream()
+                .map(SysRoleMenu::getMenuId)
+                .collect(Collectors.toList());
     }
 
-    /**
-     * 分配菜单权限：先验证所有菜单ID都属于当前租户，防止跨租户越权。
-     */
     @Transactional(rollbackFor = Exception.class)
     public void assignMenus(Long roleId, SystemAdminDtos.RoleMenuAssignRequest req) {
-        SysRole role = roleMapper.selectById(roleId);
-        if (role == null || (role.getDelFlag() != null && role.getDelFlag() == 1)) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "角色不存在");
-        }
+        getById(roleId); // validate
 
-        // 验证所有菜单ID都属于当前租户
-        List<Long> menuIds = req.getMenuIds();
-        if (menuIds != null && !menuIds.isEmpty()) {
-            validateMenuIdsBelongToCurrentTenant(menuIds);
-        }
+        roleMenuMapper.delete(new LambdaQueryWrapper<SysRoleMenu>()
+                .eq(SysRoleMenu::getRoleId, roleId));
 
-        // 删除旧关联
-        List<SysRoleMenu> old = roleMenuMapper.selectList(new LambdaQueryWrapper<SysRoleMenu>()
-                .eq(SysRoleMenu::getRoleId, roleId)
-                .eq(SysRoleMenu::getDelFlag, 0));
-        for (SysRoleMenu rm : old) {
-            roleMenuMapper.deleteById(rm.getId());
-        }
-
-        // 插入新关联（去重）
-        Set<Long> uniq = new HashSet<>(menuIds);
-        for (Long mid : uniq) {
-            if (mid == null) {
-                continue;
+        if (req.getMenuIds() != null && !req.getMenuIds().isEmpty()) {
+            for (Long menuId : req.getMenuIds()) {
+                SysRoleMenu rm = new SysRoleMenu();
+                rm.setRoleId(roleId);
+                rm.setMenuId(menuId);
+                rm.setCreateTime(LocalDateTime.now());
+                roleMenuMapper.insert(rm);
             }
-            SysRoleMenu rm = new SysRoleMenu();
-            rm.setRoleId(roleId);
-            rm.setMenuId(mid);
-            roleMenuMapper.insert(rm);
         }
     }
 
-    /**
-     * 校验所有菜单ID都属于当前租户，防止跨租户权限授予。
-     */
-    private void validateMenuIdsBelongToCurrentTenant(List<Long> menuIds) {
-        Long tenantId = TenantContext.getTenantId();
-        if (tenantId == null) {
+    private static Long requireTenantId() {
+        Long tid = TenantContext.getTenantId();
+        if (tid == null) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "缺少租户上下文");
         }
-        List<SysMenu> menus = menuMapper.selectList(new LambdaQueryWrapper<SysMenu>()
-                .in(SysMenu::getId, menuIds)
-                .eq(SysMenu::getDelFlag, 0));
-        Set<Long> foundIds = menus.stream()
-                .filter(m -> m.getTenantId() != null && m.getTenantId().equals(tenantId))
-                .map(SysMenu::getId)
-                .collect(Collectors.toSet());
-
-        Set<Long> invalidIds = new HashSet<>(menuIds);
-        invalidIds.removeAll(foundIds);
-        if (!invalidIds.isEmpty()) {
-            throw new BusinessException(ResultCode.FORBIDDEN,
-                    "部分菜单不属于当前租户，禁止分配：" + invalidIds);
-        }
+        return tid;
     }
 }

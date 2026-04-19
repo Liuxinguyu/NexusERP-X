@@ -10,14 +10,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
@@ -25,11 +18,12 @@ import java.util.List;
 @RequestMapping("/api/v1/system/roles")
 @RequiredArgsConstructor
 @Validated
-@PreAuthorize("hasRole('ADMIN')")
+
 public class SysRoleController {
 
     private final SysRoleApplicationService roleApplicationService;
 
+    @PreAuthorize("@ss.hasPermi('system:role:list')")
     @GetMapping("/page")
     public Result<IPage<SysRole>> page(
             @RequestParam(defaultValue = "1") long current,
@@ -44,16 +38,31 @@ public class SysRoleController {
         return Result.ok(roleApplicationService.listOptions());
     }
 
+    @GetMapping("/detail/{id}")
+    public Result<SysRole> getById(@PathVariable Long id) {
+        return Result.ok(roleApplicationService.getById(id));
+    }
+
     @OpLog(module = "角色管理", type = "新增")
     @PostMapping
+    @PreAuthorize("@ss.hasPermi('system:role:add')")
     public Result<Long> create(@Valid @RequestBody SystemAdminDtos.RoleCreateRequest req) {
         return Result.ok(roleApplicationService.create(req));
     }
 
     @OpLog(module = "角色管理", type = "修改")
     @PutMapping("/{id}")
+    @PreAuthorize("@ss.hasPermi('system:role:edit')")
     public Result<Void> update(@PathVariable Long id, @Valid @RequestBody SystemAdminDtos.RoleUpdateRequest req) {
         roleApplicationService.update(id, req);
+        return Result.ok();
+    }
+    
+    @OpLog(module = "角色管理", type = "删除")
+    @DeleteMapping("/{id}")
+    @PreAuthorize("@ss.hasPermi('system:role:remove')")
+    public Result<Void> delete(@PathVariable Long id) {
+        roleApplicationService.delete(id);
         return Result.ok();
     }
 
