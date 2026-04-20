@@ -15,7 +15,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.File;
 import java.io.IOException;
 import java.io.Serial;
 import java.io.Serializable;
@@ -25,7 +24,9 @@ import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -33,6 +34,7 @@ import java.util.UUID;
 public class OaFileApplicationService {
 
     private static final DateTimeFormatter DT_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final Set<String> ALLOWED_EXTENSIONS = Set.of(".jpg", ".png", ".pdf", ".docx", ".xlsx", ".xls");
 
     /** 本地文件存储根目录，可在 application.yml 中配置 */
     @Value("${nexus.file.upload-dir:/data/nexus-files}")
@@ -105,21 +107,40 @@ public class OaFileApplicationService {
         Long tenantId = requireTenantId();
         Long userId = requireUserId();
 
-        String originalFilename = file.getOriginalFilename();
-        String ext = "";
-        if (originalFilename != null && originalFilename.contains(".")) {
-            ext = originalFilename.substring(originalFilename.lastIndexOf("."));
+        if (file == null || file.isEmpty()) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "上传文件不能为空");
         }
+
+        String originalFilename = file.getOriginalFilename();
+        if (originalFilename == null || originalFilename.isBlank()) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "文件名不能为空");
+        }
+
+        // 仅保留名称部分，剥离客户端可能注入的路径片段
+        String safeOriginalFilename = Paths.get(originalFilename).getFileName().toString();
+        String ext = "";
+        int lastDot = safeOriginalFilename.lastIndexOf(".");
+        if (lastDot >= 0) {
+            ext = safeOriginalFilename.substring(lastDot).toLowerCase(Locale.ROOT);
+        }
+        if (!ALLOWED_EXTENSIONS.contains(ext)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "不支持的文件类型，禁止上传");
+        }
+
+        // 强制随机存储名，剥夺前端命名权，防止路径穿越和恶意可执行文件覆盖
         String fileKey = UUID.randomUUID().toString().replace("-", "") + ext;
-        String relativePath = tenantId + "/" + fileKey;
-        File dest = new File(uploadDir, relativePath);
-        dest.getParentFile().mkdirs();
-        file.transferTo(dest.toPath());
+        Path tenantDir = Paths.get(uploadDir).toAbsolutePath().normalize().resolve(tenantId.toString()).normalize();
+        Files.createDirectories(tenantDir);
+        Path dest = tenantDir.resolve(fileKey).normalize();
+        if (!dest.startsWith(tenantDir)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "非法文件路径");
+        }
+        file.transferTo(dest);
 
         OaFile f = new OaFile();
         f.setTenantId(tenantId);
         f.setFolderId(folderId != null ? folderId : 0L);
-        f.setFileName(originalFilename != null ? originalFilename : "未命名文件");
+        f.setFileName(safeOriginalFilename);
         f.setFileKey(fileKey);
         f.setFileSize(file.getSize());
         f.setFileType(ext.replace(".", ""));
