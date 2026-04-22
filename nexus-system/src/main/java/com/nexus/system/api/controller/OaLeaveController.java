@@ -8,6 +8,7 @@ import com.nexus.system.application.service.OaLeaveApplicationService;
 import com.nexus.system.domain.model.OaLeave;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -24,6 +25,7 @@ public class OaLeaveController {
 
     private final OaLeaveApplicationService oaLeaveApplicationService;
 
+    @PreAuthorize("@ss.hasPermi('oa:leave:list')")
     @GetMapping("/page")
     public Result<IPage<OaLeave>> page(
             @RequestParam(defaultValue = "my_apply") String type,
@@ -32,12 +34,14 @@ public class OaLeaveController {
         return Result.ok(oaLeaveApplicationService.page(type, pageNum, pageSize));
     }
 
+    @PreAuthorize("@ss.hasPermi('oa:leave:add')")
     @PostMapping("/submit")
     @OpLog(module = "请假单", type = "新增")
     public Result<Long> submit(@Valid @RequestBody OaLeaveDtos.SubmitRequest req) {
         return Result.ok(oaLeaveApplicationService.submit(req));
     }
 
+    @PreAuthorize("@ss.hasPermi('oa:leave:approve')")
     @PostMapping("/approve")
     @OpLog(module = "请假单", type = "修改")
     public Result<Void> approve(@Valid @RequestBody OaLeaveDtos.ApproveRequest req) {

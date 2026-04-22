@@ -4,6 +4,7 @@ import com.nexus.common.core.domain.Result;
 import com.nexus.system.application.dto.WorkbenchDtos;
 import com.nexus.system.application.service.WorkbenchService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -20,27 +21,32 @@ public class WorkbenchController {
 
     private final WorkbenchService workbenchService;
 
+    @PreAuthorize("isAuthenticated()")
     @GetMapping("/dashboard")
     public Result<WorkbenchDtos.DashboardSummary> dashboard() {
         return Result.ok(workbenchService.dashboardSummary());
     }
 
+    @PreAuthorize("isAuthenticated()")
     @GetMapping("/sales-chart")
     public Result<WorkbenchDtos.ChartData> salesChart() {
         return Result.ok(workbenchService.saleChart());
     }
 
+    @PreAuthorize("isAuthenticated()")
     @GetMapping("/purchase-chart")
     public Result<WorkbenchDtos.ChartData> purchaseChart() {
         return Result.ok(workbenchService.purchaseChart());
     }
 
+    @PreAuthorize("isAuthenticated()")
     @GetMapping("/top-products")
     public Result<List<WorkbenchDtos.TopProduct>> topProducts(
             @RequestParam(defaultValue = "10") int limit) {
         return Result.ok(workbenchService.topProducts(limit));
     }
 
+    @PreAuthorize("isAuthenticated()")
     @GetMapping("/stock-alarms")
     public Result<List<WorkbenchDtos.StockAlarmItem>> stockAlarms(
             @RequestParam(defaultValue = "20") int limit) {

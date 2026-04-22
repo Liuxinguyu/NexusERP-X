@@ -96,12 +96,25 @@ public class SysNoticeApplicationService {
         requireAdmin();
         Long tid = requireTenantId();
         SysNotice db = noticeMapper.selectById(id);
-        if (db == null || !Objects.equals(db.getTenantId(), tid)) {
+        if (db == null || !Objects.equals(db.getTenantId(), tid) || (db.getDelFlag() != null && db.getDelFlag() == 1)) {
             throw new BusinessException(ResultCode.NOT_FOUND, "公告不存在");
         }
         db.setStatus(STATUS_PUBLISHED);
         db.setUpdateBy(SecurityUtils.currentUserId());
         noticeMapper.updateById(db);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void delete(Long id) {
+        requireAdmin();
+        Long tid = requireTenantId();
+        SysNotice db = noticeMapper.selectById(id);
+        if (db == null || !Objects.equals(db.getTenantId(), tid) || (db.getDelFlag() != null && db.getDelFlag() == 1)) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "公告不存在");
+        }
+        db.setUpdateBy(SecurityUtils.currentUserId());
+        noticeMapper.updateById(db);
+        noticeMapper.deleteById(id);
     }
 
     private void requireAdmin() {

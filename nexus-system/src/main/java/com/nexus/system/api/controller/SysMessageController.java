@@ -1,10 +1,12 @@
 package com.nexus.system.api.controller;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.nexus.common.annotation.OpLog;
 import com.nexus.common.core.domain.Result;
 import com.nexus.system.application.service.SysMessageApplicationService;
 import com.nexus.system.domain.model.SysMessage;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -18,6 +20,7 @@ public class SysMessageController {
 
     private final SysMessageApplicationService messageApplicationService;
 
+    @PreAuthorize("isAuthenticated()")
     @GetMapping("/unread-count")
     public Result<Long> unreadCount() {
         return Result.ok(messageApplicationService.unreadCount());
@@ -31,6 +34,7 @@ public class SysMessageController {
      * @param pageSize 每页条数
      */
     @GetMapping("/page")
+    @PreAuthorize("isAuthenticated()")
     public Result<IPage<SysMessage>> page(
             @RequestParam(defaultValue = "unread") String type,
             @RequestParam(defaultValue = "1") long pageNum,
@@ -42,6 +46,8 @@ public class SysMessageController {
         };
     }
 
+    @OpLog(module = "消息中心", type = "全部已读")
+    @PreAuthorize("isAuthenticated()")
     @PutMapping("/read-all")
     public Result<Void> readAll() {
         messageApplicationService.markAllRead();
