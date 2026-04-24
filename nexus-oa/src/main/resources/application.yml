@@ -11,11 +11,15 @@ knife4j:
   enable: true
   setting:
     language: zh_cn
-  production: false
+  production: ${KNIFE4J_PRODUCTION:false}
 
 spring:
   application:
     name: nexus-oa
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 50MB
   profiles:
     active: dev
 

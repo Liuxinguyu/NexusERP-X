@@ -5,9 +5,9 @@ import com.nexus.common.annotation.OpLog;
 import com.nexus.common.core.domain.Result;
 import com.nexus.oa.application.dto.OaDtos;
 import com.nexus.oa.application.service.OaEmployeeApplicationService;
-import com.nexus.oa.domain.model.OaEmployee;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -28,7 +28,8 @@ public class OaEmployeeController {
     private final OaEmployeeApplicationService employeeApplicationService;
 
     @GetMapping("/page")
-    public Result<IPage<OaEmployee>> page(
+    @PreAuthorize("@ss.hasPermi('oa:employee:list')")
+    public Result<IPage<OaEmployeeApplicationService.EmployeeVO>> page(
             @RequestParam(defaultValue = "1") long current,
             @RequestParam(defaultValue = "10") long size,
             @RequestParam(required = false) String name,
@@ -37,17 +38,20 @@ public class OaEmployeeController {
     }
 
     @GetMapping("/{id}")
-    public Result<OaEmployee> get(@PathVariable Long id) {
+    @PreAuthorize("@ss.hasPermi('oa:employee:list')")
+    public Result<OaEmployeeApplicationService.EmployeeVO> get(@PathVariable Long id) {
         return Result.ok(employeeApplicationService.getById(id));
     }
 
     @PostMapping
+    @PreAuthorize("@ss.hasPermi('oa:employee:add')")
     @OpLog(module = "OA员工档案", type = "新增")
     public Result<Long> create(@Valid @RequestBody OaDtos.EmployeeCreateRequest req) {
         return Result.ok(employeeApplicationService.create(req));
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("@ss.hasPermi('oa:employee:edit')")
     @OpLog(module = "OA员工档案", type = "修改")
     public Result<Void> update(@PathVariable Long id, @Valid @RequestBody OaDtos.EmployeeUpdateRequest req) {
         employeeApplicationService.update(id, req);
@@ -55,6 +59,7 @@ public class OaEmployeeController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("@ss.hasPermi('oa:employee:delete')")
     @OpLog(module = "OA员工档案", type = "删除")
     public Result<Void> delete(@PathVariable Long id) {
         employeeApplicationService.delete(id);

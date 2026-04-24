@@ -23,12 +23,9 @@ public class SysNoticeApplicationService {
     public static final int STATUS_PUBLISHED = 1;
 
     private final SysNoticeMapper noticeMapper;
-    private final AdminAuthorizationService adminAuthorizationService;
 
-    public SysNoticeApplicationService(SysNoticeMapper noticeMapper,
-                                       AdminAuthorizationService adminAuthorizationService) {
+    public SysNoticeApplicationService(SysNoticeMapper noticeMapper) {
         this.noticeMapper = noticeMapper;
-        this.adminAuthorizationService = adminAuthorizationService;
     }
 
     public IPage<SysNotice> page(long pageNum, long pageSize) {
@@ -61,7 +58,6 @@ public class SysNoticeApplicationService {
      */
     @Transactional(rollbackFor = Exception.class)
     public Long saveOrUpdate(SystemAdminDtos.NoticeSaveRequest req) {
-        requireAdmin();
         Long tid = requireTenantId();
         Long uid = SecurityUtils.currentUserId();
 
@@ -93,7 +89,6 @@ public class SysNoticeApplicationService {
 
     @Transactional(rollbackFor = Exception.class)
     public void publish(Long id) {
-        requireAdmin();
         Long tid = requireTenantId();
         SysNotice db = noticeMapper.selectById(id);
         if (db == null || !Objects.equals(db.getTenantId(), tid) || (db.getDelFlag() != null && db.getDelFlag() == 1)) {
@@ -106,7 +101,6 @@ public class SysNoticeApplicationService {
 
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
-        requireAdmin();
         Long tid = requireTenantId();
         SysNotice db = noticeMapper.selectById(id);
         if (db == null || !Objects.equals(db.getTenantId(), tid) || (db.getDelFlag() != null && db.getDelFlag() == 1)) {
@@ -115,13 +109,6 @@ public class SysNoticeApplicationService {
         db.setUpdateBy(SecurityUtils.currentUserId());
         noticeMapper.updateById(db);
         noticeMapper.deleteById(id);
-    }
-
-    private void requireAdmin() {
-        Long uid = SecurityUtils.currentUserId();
-        if (uid == null || !adminAuthorizationService.hasAdminRole(uid)) {
-            throw new BusinessException(ResultCode.FORBIDDEN, "仅管理员可操作");
-        }
     }
 
     private static Long requireTenantId() {

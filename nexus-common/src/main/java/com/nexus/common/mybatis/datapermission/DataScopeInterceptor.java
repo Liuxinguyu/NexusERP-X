@@ -3,6 +3,8 @@ package com.nexus.common.mybatis.datapermission;
 import com.baomidou.mybatisplus.core.toolkit.PluginUtils;
 import com.baomidou.mybatisplus.extension.plugins.inner.InnerInterceptor;
 import com.nexus.common.context.DataScopeContext;
+import com.nexus.common.context.OrgContext;
+import com.nexus.common.security.datascope.DataScope;
 import lombok.extern.slf4j.Slf4j;
 import net.sf.jsqlparser.JSQLParserException;
 import net.sf.jsqlparser.expression.Expression;
@@ -25,12 +27,14 @@ import org.apache.ibatis.session.RowBounds;
 import org.springframework.stereotype.Component;
 
 import java.sql.SQLException;
+import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
- * 数据权限：按 {@link DataScopeContext} 的 dataScope（1 全部、2 自定义、3 本部门、4 本部门及以下、5 仅本人）改写 SELECT。
+ * 数据权限：按 {@link DataScope} 枚举语义改写 SELECT。
  */
 @Slf4j
 @Component
@@ -102,7 +106,16 @@ public class DataScopeInterceptor implements InnerInterceptor {
             return;
         }
         Integer ds = DataScopeContext.getDataScope();
-        if (ds == null || ds == 1) {
+        if (ds == null) {
+            return;
+        }
+        DataScope scope = DataScope.fromCode(ds);
+        if (scope == DataScope.ALL) {
+            return;
+        }
+        if (scope == null) {
+            log.warn("未知的数据权限编码 {}，拒绝查询以防数据泄露", ds);
+            PluginUtils.mpBoundSql(boundSql).sql("SELECT 1 FROM dual WHERE 1 = 0");
             return;
         }
 
@@ -125,7 +138,7 @@ public class DataScopeInterceptor implements InnerInterceptor {
                 return;
             }
 
-            Expression extra = buildFilter(ds, mainTable, alias);
+            Expression extra = buildFilter(scope, mainTable, alias);
             if (extra == null) {
                 return;
             }
@@ -136,51 +149,47 @@ public class DataScopeInterceptor implements InnerInterceptor {
                 PluginUtils.mpBoundSql(boundSql).sql(newSql);
             }
         } catch (JSQLParserException e) {
-            log.warn("数据权限 SQL 改写失败，跳过: {}", e.getMessage());
+            log.error("数据权限 SQL 改写失败，拒绝执行以防数据泄露: {}", e.getMessage());
+            throw new SQLException("数据权限 SQL 改写失败，拒绝执行", e);
         }
     }
 
-    private static Expression buildFilter(int ds, String mainTable, String alias) throws JSQLParserException {
+    private static Expression buildFilter(DataScope scope, String mainTable, String alias) throws JSQLParserException {
         Long userId = DataScopeContext.getUserId();
         Long deptId = DataScopeContext.getDeptId();
-        Long roleId = DataScopeContext.getRoleId();
-
-        if (ds == 5) { // 仅本人数据
-            if (userId == null) {
-                // 如果没有用户信息但要求隔离，返回 1=0 (用 1=0 阻塞)
-                return CCJSqlParserUtil.parseCondExpression("1 = 0");
-            }
-            return CCJSqlParserUtil.parseCondExpression(alias + ".create_by = " + userId);
-        }
 
         String colName = "sys_user".equals(mainTable) ? COL_MAIN_ORG : COL_ORG;
-
-        if (ds == 3) { // 本部门数据
-            if (deptId == null) {
-                return CCJSqlParserUtil.parseCondExpression("1 = 0");
+        return switch (scope) {
+            case SELF -> {
+                if (userId == null) {
+                    yield CCJSqlParserUtil.parseCondExpression("1 = 0");
+                }
+                yield CCJSqlParserUtil.parseCondExpression(alias + ".create_by = " + userId);
             }
-            return CCJSqlParserUtil.parseCondExpression(alias + "." + colName + " = " + deptId);
-        }
-
-        if (ds == 4) { // 本部门及以下数据
-            if (deptId == null) {
-                return CCJSqlParserUtil.parseCondExpression("1 = 0");
+            case SHOP -> {
+                List<Long> shopIds = OrgContext.getAccessibleShopIds();
+                if (shopIds == null || shopIds.isEmpty()) {
+                    // 回退到 accessibleOrgIds 兼容旧数据
+                    shopIds = OrgContext.getAccessibleOrgIds();
+                }
+                if (shopIds == null || shopIds.isEmpty()) {
+                    yield CCJSqlParserUtil.parseCondExpression("1 = 0");
+                }
+                String inList = shopIds.stream().map(String::valueOf).collect(Collectors.joining(","));
+                yield CCJSqlParserUtil.parseCondExpression(alias + "." + colName + " IN (" + inList + ")");
             }
-            // 若依经典实现：使用 id = deptId OR FIND_IN_SET(deptId, ancestors)
-            String cond = String.format("%s.%s IN ( SELECT id FROM sys_org WHERE id = %d OR FIND_IN_SET(%d, ancestors) )", alias, colName, deptId, deptId);
-            return CCJSqlParserUtil.parseCondExpression(cond);
-        }
-
-        if (ds == 2) { // 自定义数据权限
-            if (roleId == null) {
-                return CCJSqlParserUtil.parseCondExpression("1 = 0");
+            case ORG_AND_SUB_SHOPS -> {
+                if (deptId == null) {
+                    yield CCJSqlParserUtil.parseCondExpression("1 = 0");
+                }
+                String cond = String.format(
+                        "%s.%s IN ( SELECT id FROM sys_org WHERE id = %d OR FIND_IN_SET(%d, ancestors) )",
+                        alias, colName, deptId, deptId
+                );
+                yield CCJSqlParserUtil.parseCondExpression(cond);
             }
-            // 若依经典实现：使用 sys_role_org 中间表关联
-            String cond = String.format("%s.%s IN ( SELECT org_id FROM sys_role_org WHERE role_id = %d )", alias, colName, roleId);
-            return CCJSqlParserUtil.parseCondExpression(cond);
-        }
-
-        return null;
+            case ALL -> null;
+        };
     }
 
     private static String primaryTableName(PlainSelect ps) {

@@ -36,7 +36,7 @@ public class CaptchaImageService {
         String uuid = UUID.randomUUID().toString();
 
         // Store in Redis
-        redisTemplate.opsForValue().set(CAPTCHA_PREFIX + uuid, code.toLowerCase(), TTL_SECONDS, TimeUnit.SECONDS);
+        redisTemplate.opsForValue().set(CAPTCHA_PREFIX + uuid, code.toUpperCase(), TTL_SECONDS, TimeUnit.SECONDS);
 
         // Generate image
         String base64Img = generateImage(code);
@@ -55,7 +55,7 @@ public class CaptchaImageService {
         }
         // Delete after one use
         redisTemplate.delete(key);
-        return expected.equalsIgnoreCase(input.trim());
+        return expected.equals(input.trim().toUpperCase());
     }
 
     private String generateCode(int length) {

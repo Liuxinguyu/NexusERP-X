@@ -3,24 +3,28 @@ import { configApi, unwrapPage } from '../../api/system-crud'
 import { useConfirm } from '../../components/ConfirmDialog'
 import Modal from '../../components/Modal'
 import { useToast } from '../../components/Toast'
-import { PermGate } from '../../context/PermissionsContext'
+import { PermGate, usePermissions } from '../../context/PermissionsContext'
+import { formatDateTime } from '../../lib/format'
+import { useStaleGuard } from '../../hooks/useStaleGuard'
 import { SYSTEM_PERMS } from '../../lib/system-perms'
 import type { ConfigRow } from '../../types/system-crud'
 
 export default function ConfigManage() {
   const toast = useToast()
   const confirm = useConfirm()
+  const { can } = usePermissions()
 
   const [list, setList] = useState<ConfigRow[]>([])
   const [total, setTotal] = useState(0)
   const [current, setCurrent] = useState(1)
-  const [size] = useState(10)
+  const [size, setSize] = useState(10)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
   // --- search ---
   const [configNameQ, setConfigNameQ] = useState('')
   const [configKeyQ, setConfigKeyQ] = useState('')
+  const [draft, setDraft] = useState({ configName: '', configKey: '' })
   const [searchNonce, setSearchNonce] = useState(0)
 
   // --- modal ---
@@ -36,8 +40,11 @@ export default function ConfigManage() {
     remark: '',
   })
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
+  const [submitting, setSubmitting] = useState(false)
+  const guard = useStaleGuard()
 
   const load = useCallback(async () => {
+    const id = guard.nextId()
     setLoading(true)
     setError('')
     try {
@@ -49,14 +56,17 @@ export default function ConfigManage() {
           configKey: configKeyQ.trim() || undefined,
         }),
       )
+      if (!guard.isCurrent(id)) return
       setList(rows)
       setTotal(t)
     } catch (e) {
+      if (!guard.isCurrent(id)) return
       setError(e instanceof Error ? e.message : '加载参数配置失败')
     } finally {
+      if (!guard.isCurrent(id)) return
       setLoading(false)
     }
-  }, [current, size, configNameQ, configKeyQ, searchNonce])
+  }, [current, size, configNameQ, configKeyQ, searchNonce, guard])
 
   useEffect(() => {
     void load()
@@ -99,6 +109,8 @@ export default function ConfigManage() {
       configType: form.configType,
       remark: form.remark,
     }
+    if (submitting) return
+    setSubmitting(true)
     try {
       if (modal.row?.id != null) {
         await configApi.update(modal.row.id, body)
@@ -106,9 +118,12 @@ export default function ConfigManage() {
         await configApi.create(body)
       }
       setModal({ open: false, row: null })
+      toast.success('配置已保存')
       await load()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '保存失败')
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -123,6 +138,7 @@ export default function ConfigManage() {
     if (!ok) return
     try {
       await configApi.remove(row.id)
+      toast.success('配置已删除')
       await load()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '删除失败')
@@ -130,15 +146,26 @@ export default function ConfigManage() {
   }
 
   const handleSearch = () => {
+    setConfigNameQ(draft.configName)
+    setConfigKeyQ(draft.configKey)
     setCurrent(1)
     setSearchNonce((n) => n + 1)
   }
 
   const handleReset = () => {
+    setDraft({ configName: '', configKey: '' })
     setConfigNameQ('')
     setConfigKeyQ('')
     setCurrent(1)
     setSearchNonce((n) => n + 1)
+  }
+
+  if (!can(SYSTEM_PERMS.config.query)) {
+    return (
+      <div className="bg-white p-10 rounded-[2.5rem] shadow-sm ring-1 ring-slate-100 text-center text-slate-500 font-bold">
+        无权限访问：参数配置
+      </div>
+    )
   }
 
   /** Whether the row being edited is a built-in config */
@@ -172,8 +199,11 @@ export default function ConfigManage() {
           <label className="text-[10px] font-black text-slate-400 uppercase">参数名称</label>
           <input
             placeholder="搜索名称"
-            value={configNameQ}
-            onChange={(e) => setConfigNameQ(e.target.value)}
+            value={draft.configName}
+            onChange={(e) => setDraft((prev) => ({ ...prev, configName: e.target.value }))}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSearch()
+            }}
             className="px-3 py-2 rounded-xl bg-slate-50 ring-1 ring-slate-200 text-sm w-36"
           />
         </div>
@@ -181,8 +211,11 @@ export default function ConfigManage() {
           <label className="text-[10px] font-black text-slate-400 uppercase">参数键名</label>
           <input
             placeholder="搜索键名"
-            value={configKeyQ}
-            onChange={(e) => setConfigKeyQ(e.target.value)}
+            value={draft.configKey}
+            onChange={(e) => setDraft((prev) => ({ ...prev, configKey: e.target.value }))}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSearch()
+            }}
             className="px-3 py-2 rounded-xl bg-slate-50 ring-1 ring-slate-200 text-sm w-36"
           />
         </div>
@@ -261,7 +294,7 @@ export default function ConfigManage() {
                   <td className="px-8 py-5 text-slate-400 text-xs max-w-[120px] truncate">
                     {r.remark || '—'}
                   </td>
-                  <td className="px-8 py-5 text-slate-400 text-xs whitespace-nowrap">{r.createTime ?? '—'}</td>
+                  <td className="px-8 py-5 text-slate-400 text-xs whitespace-nowrap">{formatDateTime(r.createTime)}</td>
                   <td className="px-8 py-5 text-right space-x-2">
                     <PermGate perms={[SYSTEM_PERMS.config.edit]}>
                       <button
@@ -289,7 +322,20 @@ export default function ConfigManage() {
         </table>
         <div className="p-4 flex justify-between items-center border-t border-slate-50 text-xs text-slate-500">
           <span>共 {total} 条</span>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
+            <select
+              value={size}
+              onChange={(e) => {
+                setSize(Number(e.target.value))
+                setCurrent(1)
+              }}
+              className="px-2 py-1 bg-white rounded-lg ring-1 ring-slate-200"
+            >
+              <option value={10}>10条/页</option>
+              <option value={20}>20条/页</option>
+              <option value={50}>50条/页</option>
+            </select>
+            <span>第 {current} / {Math.max(1, Math.ceil(total / size))} 页</span>
             <button
               type="button"
               disabled={current <= 1}
@@ -300,7 +346,7 @@ export default function ConfigManage() {
             </button>
             <button
               type="button"
-              disabled={current * size >= total}
+              disabled={current >= Math.max(1, Math.ceil(total / size))}
               onClick={() => setCurrent((c) => c + 1)}
               className="px-3 py-1 rounded-lg bg-slate-100 font-bold disabled:opacity-40"
             >
@@ -397,9 +443,10 @@ export default function ConfigManage() {
             <button
               type="button"
               onClick={() => void save()}
+                disabled={submitting}
               className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold"
             >
-              保存
+                {submitting ? '保存中...' : '保存'}
             </button>
           </div>
         </div>

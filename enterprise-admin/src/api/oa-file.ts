@@ -2,7 +2,8 @@ import { httpGet, httpPost, httpDelete } from '../lib/request'
 import type { OaFileFolder, OaFileRow } from '../types/oa-crud'
 
 export const fileApi = {
-  getFolders: () => httpGet<OaFileFolder[]>('/oa/files/folders'),
+  getFolders: (params?: { parentId?: number }) =>
+    httpGet<OaFileFolder[]>('/oa/files/folders', { params }),
   createFolder: (body: { folderName: string; parentId?: number }) =>
     httpPost<unknown>('/oa/files/folders', body),
   deleteFolder: (id: number) => httpDelete<unknown>(`/oa/files/folders/${id}`),

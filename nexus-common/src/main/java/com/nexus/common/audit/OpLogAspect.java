@@ -6,14 +6,14 @@ import com.nexus.common.context.GatewayUserContext;
 import com.nexus.common.context.TenantContext;
 import com.nexus.common.security.NexusPrincipal;
 import com.nexus.common.security.SecurityUtils;
+import com.nexus.common.utils.HttpRequestUtils;
 import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
 import lombok.extern.slf4j.Slf4j;
+import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.JoinPoint;
-import org.aspectj.lang.annotation.AfterReturning;
-import org.aspectj.lang.annotation.AfterThrowing;
+import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
-import org.aspectj.lang.annotation.Before;
 import org.aspectj.lang.reflect.MethodSignature;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
@@ -26,11 +26,12 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 /**
- * 操作日志切面：ThreadLocal 计时，成功/异常分别落库（参考 RuoYi 思路）。
+ * 操作日志切面：使用 @Around 统一计时与成功/异常落库。
  */
 @Slf4j
 @Aspect
@@ -40,46 +41,47 @@ import java.util.Set;
 public class OpLogAspect {
 
     private static final int MAX_TEXT = 3800;
+    private static final String MASK = "******";
+    private static final List<String> SENSITIVE_KEYWORDS = List.of(
+            "password", "oldpassword", "newpassword", "secretkey",
+            "token", "secret", "credential", "apikey", "accesskey",
+            "authorization", "cardnumber", "cvv", "ssn", "idcard"
+    );
 
     private final ObjectProvider<OperLogRecorder> recorderProvider;
     private final ObjectMapper objectMapper;
-
-    private final ThreadLocal<Long> startTime = new ThreadLocal<>();
 
     public OpLogAspect(ObjectProvider<OperLogRecorder> recorderProvider, ObjectMapper objectMapper) {
         this.recorderProvider = recorderProvider;
         this.objectMapper = objectMapper;
     }
 
-    @Before("@annotation(opLog)")
-    public void doBefore(JoinPoint jp, OpLog opLog) {
-        startTime.set(System.currentTimeMillis());
-    }
-
-    @AfterReturning(pointcut = "@annotation(opLog)", returning = "ret")
-    public void doAfterReturning(JoinPoint jp, OpLog opLog, Object ret) {
+    @Around("@annotation(opLog)")
+    public Object around(ProceedingJoinPoint jp, OpLog opLog) throws Throwable {
+        long start = System.currentTimeMillis();
+        Object ret = null;
+        Throwable thrown = null;
         try {
-            record(jp, opLog, ret, null);
+            ret = jp.proceed();
+            return ret;
+        } catch (Throwable ex) {
+            thrown = ex;
+            throw ex;
         } finally {
-            startTime.remove();
+            long cost = System.currentTimeMillis() - start;
+            try {
+                record(jp, opLog, ret, thrown, cost);
+            } catch (Exception e) {
+                log.warn("操作日志记录失败: {}", e.getMessage());
+            }
         }
     }
 
-    @AfterThrowing(pointcut = "@annotation(opLog)", throwing = "ex")
-    public void doAfterThrowing(JoinPoint jp, OpLog opLog, Throwable ex) {
-        try {
-            record(jp, opLog, null, ex);
-        } finally {
-            startTime.remove();
-        }
-    }
-
-    private void record(JoinPoint jp, OpLog opLog, Object jsonResult, Throwable ex) {
+    private void record(JoinPoint jp, OpLog opLog, Object jsonResult, Throwable ex, long cost) {
         OperLogRecorder recorder = recorderProvider.getIfAvailable();
         if (recorder == null) {
             return;
         }
-        long cost = System.currentTimeMillis() - (startTime.get() != null ? startTime.get() : System.currentTimeMillis());
 
         String url = "";
         String method = "";
@@ -90,7 +92,7 @@ public class OpLogAspect {
                 var req = attrs.getRequest();
                 url = req.getRequestURI();
                 method = req.getMethod();
-                ip = clientIp(req);
+                ip = HttpRequestUtils.clientIp(req);
             }
         } catch (Exception ignored) {
         }
@@ -141,14 +143,6 @@ public class OpLogAspect {
         }
     }
 
-    private static String clientIp(jakarta.servlet.http.HttpServletRequest req) {
-        String x = req.getHeader("X-Forwarded-For");
-        if (x != null && !x.isBlank()) {
-            return x.split(",")[0].trim();
-        }
-        return req.getRemoteAddr();
-    }
-
     private String buildRequestJson(JoinPoint jp, OpLog opLog) {
         MethodSignature sig = (MethodSignature) jp.getSignature();
         Method m = sig.getMethod();
@@ -170,7 +164,7 @@ public class OpLogAspect {
             }
             map.put(name, v);
         }
-        return writeJson(map);
+        return writeMaskedJson(map);
     }
 
     private String writeJson(Object o) {
@@ -179,6 +173,68 @@ public class OpLogAspect {
         } catch (Exception e) {
             return String.valueOf(o);
         }
+    }
+
+    private String writeMaskedJson(Object origin) {
+        try {
+            Object masked = maskSensitive(origin);
+            return objectMapper.writeValueAsString(masked);
+        } catch (Exception e) {
+            log.error("操作日志参数脱敏失败: {}", e.getMessage(), e);
+            return "[WARN] operParam脱敏失败，已跳过原始参数记录";
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Object maskSensitive(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Map<?, ?> map) {
+            Map<String, Object> out = new LinkedHashMap<>();
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                String key = String.valueOf(entry.getKey());
+                Object rawValue = entry.getValue();
+                if (isSensitiveKey(key)) {
+                    out.put(key, MASK);
+                } else {
+                    out.put(key, maskSensitive(rawValue));
+                }
+            }
+            return out;
+        }
+        if (value instanceof List<?> list) {
+            return list.stream().map(this::maskSensitive).toList();
+        }
+        if (value instanceof Set<?> set) {
+            return set.stream().map(this::maskSensitive).collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        }
+        if (isPrimitiveLike(value)) {
+            return value;
+        }
+        // 对任意对象先转成 Map，再递归脱敏（不修改原对象）
+        Map<String, Object> asMap = objectMapper.convertValue(value, LinkedHashMap.class);
+        return maskSensitive(asMap);
+    }
+
+    private static boolean isSensitiveKey(String key) {
+        if (key == null) {
+            return false;
+        }
+        String lower = key.toLowerCase();
+        for (String keyword : SENSITIVE_KEYWORDS) {
+            if (lower.contains(keyword)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isPrimitiveLike(Object value) {
+        return value instanceof CharSequence
+                || value instanceof Number
+                || value instanceof Boolean
+                || value.getClass().isEnum();
     }
 
     private static String truncate(String s) {

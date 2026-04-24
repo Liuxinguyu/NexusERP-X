@@ -12,6 +12,7 @@ import com.nexus.system.application.service.SystemUserInfoService;
 import com.nexus.system.domain.model.SysUser;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -40,11 +41,13 @@ public class SystemUserController {
         return Result.ok(systemUserInfoService.getCurrentUserInfo(p));
     }
 
+    @PreAuthorize("@ss.hasPermi('system:user:list')")
     @GetMapping("/list-by-org")
     public Result<List<SysUser>> listByOrg(@RequestParam(required = false) Long orgId) {
         return Result.ok(sysOrgApplicationService.listUsersForCurrentTenantByOrg(orgId));
     }
 
+    @PreAuthorize("@ss.hasPermi('system:user:edit')")
     @PutMapping("/change-org")
     @OpLog(module = "用户管理", type = "修改")
     public Result<Void> changeOrg(@Valid @RequestBody SystemOrgDtos.UserChangeOrgRequest req) {

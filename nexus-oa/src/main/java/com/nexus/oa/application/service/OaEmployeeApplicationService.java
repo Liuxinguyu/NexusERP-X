@@ -13,6 +13,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.io.Serial;
+import java.io.Serializable;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.Objects;
 
 @Service
@@ -24,7 +28,7 @@ public class OaEmployeeApplicationService {
         this.employeeMapper = employeeMapper;
     }
 
-    public IPage<OaEmployee> page(long current, long size, String name, String empNo) {
+    public IPage<EmployeeVO> page(long current, long size, String name, String empNo) {
         Long tenantId = requireTenantId();
         Page<OaEmployee> p = new Page<>(current, size);
         LambdaQueryWrapper<OaEmployee> w = new LambdaQueryWrapper<OaEmployee>()
@@ -33,16 +37,16 @@ public class OaEmployeeApplicationService {
                 .like(StringUtils.hasText(name), OaEmployee::getName, name)
                 .like(StringUtils.hasText(empNo), OaEmployee::getEmpNo, empNo)
                 .orderByDesc(OaEmployee::getId);
-        return employeeMapper.selectPage(p, w);
+        return employeeMapper.selectPage(p, w).convert(this::toVO);
     }
 
-    public OaEmployee getById(Long id) {
+    public EmployeeVO getById(Long id) {
         Long tenantId = requireTenantId();
         OaEmployee e = employeeMapper.selectById(id);
         if (e == null || !Objects.equals(e.getTenantId(), tenantId) || (e.getDelFlag() != null && e.getDelFlag() == 1)) {
             throw new BusinessException(ResultCode.NOT_FOUND, "员工不存在");
         }
-        return e;
+        return toVO(e);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -59,7 +63,7 @@ public class OaEmployeeApplicationService {
     @Transactional(rollbackFor = Exception.class)
     public void update(Long id, OaDtos.EmployeeUpdateRequest req) {
         Long tenantId = requireTenantId();
-        OaEmployee exist = getById(id);
+        OaEmployee exist = loadEmployee(id, tenantId);
         assertEmpNoUnique(tenantId, req.getEmpNo().trim(), id);
         fillFromUpdate(exist, req);
         employeeMapper.updateById(exist);
@@ -67,7 +71,8 @@ public class OaEmployeeApplicationService {
 
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
-        OaEmployee exist = getById(id);
+        Long tenantId = requireTenantId();
+        OaEmployee exist = loadEmployee(id, tenantId);
         employeeMapper.deleteById(exist.getId());
     }
 
@@ -114,5 +119,45 @@ public class OaEmployeeApplicationService {
             throw new BusinessException(ResultCode.BAD_REQUEST, "缺少租户上下文");
         }
         return tid;
+    }
+
+    private OaEmployee loadEmployee(Long id, Long tenantId) {
+        OaEmployee e = employeeMapper.selectById(id);
+        if (e == null || !Objects.equals(e.getTenantId(), tenantId)
+                || (e.getDelFlag() != null && e.getDelFlag() == 1)) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "员工不存在");
+        }
+        return e;
+    }
+
+    private EmployeeVO toVO(OaEmployee e) {
+        EmployeeVO vo = new EmployeeVO();
+        vo.setId(e.getId());
+        vo.setEmpNo(e.getEmpNo());
+        vo.setName(e.getName());
+        vo.setDept(e.getDept());
+        vo.setPosition(e.getPosition());
+        vo.setHireDate(e.getHireDate() != null ? e.getHireDate().format(DateTimeFormatter.ISO_LOCAL_DATE) : null);
+        vo.setPhone(e.getPhone());
+        vo.setStatus(e.getStatus());
+        vo.setUserId(e.getUserId());
+        vo.setDirectLeaderUserId(e.getDirectLeaderUserId());
+        return vo;
+    }
+
+    @lombok.Data
+    public static class EmployeeVO implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        private Long id;
+        private String empNo;
+        private String name;
+        private String dept;
+        private String position;
+        private String hireDate;
+        private String phone;
+        private Integer status;
+        private Long userId;
+        private Long directLeaderUserId;
     }
 }

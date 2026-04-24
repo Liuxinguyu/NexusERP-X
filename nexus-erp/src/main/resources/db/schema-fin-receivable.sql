@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS fin_receivable (
   UNIQUE KEY uk_tenant_no (tenant_id, receivable_no),
   KEY idx_customer (tenant_id, customer_id),
   KEY idx_status (tenant_id, status),
-  KEY idx_source (tenant_id, source_type, source_id)
+  UNIQUE KEY uk_receivable_source (tenant_id, source_type, source_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 收款记录表

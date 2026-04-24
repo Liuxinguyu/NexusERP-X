@@ -7,6 +7,7 @@ import com.nexus.common.context.TenantContext;
 import com.nexus.common.core.domain.ResultCode;
 import com.nexus.common.exception.BusinessException;
 import com.nexus.erp.application.dto.ErpDtos;
+import com.nexus.erp.application.support.DateParsers;
 import com.nexus.erp.domain.model.ErpCustomer;
 import com.nexus.erp.domain.model.ErpOpportunity;
 import com.nexus.erp.infrastructure.mapper.ErpCustomerMapper;
@@ -16,7 +17,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
@@ -82,7 +82,7 @@ public class ErpOpportunityApplicationService {
         opp.setStage(stage);
         opp.setProbability(getProbability(stage));
         if (req.getExpectCloseDate() != null && !req.getExpectCloseDate().isBlank()) {
-            opp.setExpectCloseDate(LocalDate.parse(req.getExpectCloseDate()));
+            opp.setExpectCloseDate(DateParsers.parseIsoDate(req.getExpectCloseDate(), "预计成交日期"));
         }
         opp.setOwnerUserId(req.getOwnerUserId());
         opp.setRemark(req.getRemark());
@@ -95,7 +95,7 @@ public class ErpOpportunityApplicationService {
     public void update(Long id, ErpDtos.OpportunityUpdateRequest req) {
         Long tenantId = requireTenantId();
         ErpOpportunity opp = loadOpportunity(id, tenantId);
-        if (opp.getStatus() == 0) {
+        if (Objects.equals(opp.getStatus(), 0)) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "已关闭的商机不可修改");
         }
         if (req.getOpportunityName() != null && !req.getOpportunityName().isBlank()) {
@@ -112,7 +112,7 @@ public class ErpOpportunityApplicationService {
             opp.setProbability(req.getProbability());
         }
         if (req.getExpectCloseDate() != null && !req.getExpectCloseDate().isBlank()) {
-            opp.setExpectCloseDate(LocalDate.parse(req.getExpectCloseDate()));
+            opp.setExpectCloseDate(DateParsers.parseIsoDate(req.getExpectCloseDate(), "预计成交日期"));
         }
         if (req.getOwnerUserId() != null) {
             opp.setOwnerUserId(req.getOwnerUserId());
@@ -137,7 +137,7 @@ public class ErpOpportunityApplicationService {
     public void advanceStage(Long id, String nextStage) {
         Long tenantId = requireTenantId();
         ErpOpportunity opp = loadOpportunity(id, tenantId);
-        if (opp.getStatus() == 0) {
+        if (Objects.equals(opp.getStatus(), 0)) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "已关闭的商机不可推进");
         }
         if (STAGE_WIN.equals(nextStage) || STAGE_LOSE.equals(nextStage)) {

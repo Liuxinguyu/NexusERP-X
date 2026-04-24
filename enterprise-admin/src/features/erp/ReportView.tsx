@@ -1,37 +1,59 @@
 import { useEffect, useState } from 'react'
 import { reportApi } from '../../api/erp-crud'
 import { useToast } from '../../components/Toast'
+import { usePermissions } from '../../context/PermissionsContext'
+import { ERP_PERMS } from '../../lib/business-perms'
 import type { SalesMonthly, RankItem, StockAlarm } from '../../types/erp-crud'
 
 export default function ReportView() {
   const toast = useToast()
+  const { can } = usePermissions()
   const [trend, setTrend] = useState<SalesMonthly[]>([])
   const [productRank, setProductRank] = useState<RankItem[]>([])
   const [customerRank, setCustomerRank] = useState<RankItem[]>([])
   const [alarms, setAlarms] = useState<StockAlarm[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [reloadNonce, setReloadNonce] = useState(0)
 
-  const year = new Date().getFullYear()
-  const month = new Date().getMonth() + 1
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = now.getMonth() + 1
 
   useEffect(() => {
+    let cancelled = false
     setLoading(true)
     setError('')
-    Promise.all([
+    Promise.allSettled([
       reportApi.salesTrend({ year }),
       reportApi.productRank({ year, month, limit: 10 }),
       reportApi.customerRank({ year, month, limit: 10 }),
       reportApi.stockAlarm(),
     ]).then(([t, p, c, a]) => {
-      setTrend(t); setProductRank(p); setCustomerRank(c); setAlarms(a)
-    }).catch(() => {
-      setError('加载报表数据失败，请刷新重试')
-      toast.error('加载报表数据失败')
-    }).finally(() => setLoading(false))
-  }, [year, month])
+      if (cancelled) return
+      if (t.status === 'fulfilled') setTrend(t.value)
+      if (p.status === 'fulfilled') setProductRank(p.value)
+      if (c.status === 'fulfilled') setCustomerRank(c.value)
+      if (a.status === 'fulfilled') setAlarms(a.value)
+      const failed = [t, p, c, a].some((x) => x.status === 'rejected')
+      if (failed) {
+        setError('部分报表数据加载失败，请重试')
+        toast.error('部分报表数据加载失败')
+      }
+    }).finally(() => {
+      if (cancelled) return
+      setLoading(false)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [year, month, toast, reloadNonce])
 
   const maxTrend = Math.max(...trend.map(t => t.totalAmount ?? 0), 1)
+
+  if (!can(ERP_PERMS.report.view)) {
+    return <div className="p-8 text-center text-slate-400 font-bold">暂无权限访问</div>
+  }
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
@@ -40,7 +62,7 @@ export default function ReportView() {
       {error && (
         <div className="bg-rose-50 rounded-[2rem] p-6 ring-1 ring-rose-100 flex items-center justify-between">
           <span className="text-sm font-black text-rose-600">{error}</span>
-          <button onClick={() => window.location.reload()} className="px-5 py-2 bg-rose-600 text-white rounded-xl text-xs font-black hover:bg-rose-500 transition-all">刷新重试</button>
+          <button onClick={() => setReloadNonce((v) => v + 1)} className="px-5 py-2 bg-rose-600 text-white rounded-xl text-xs font-black hover:bg-rose-500 transition-all">刷新重试</button>
         </div>
       )}
 

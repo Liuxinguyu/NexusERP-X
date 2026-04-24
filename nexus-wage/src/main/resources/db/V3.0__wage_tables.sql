@@ -1,9 +1,6 @@
 -- MySQL：薪酬薪资项配置、月度工资单（与 BaseTenantEntity / 逻辑删除字段对齐）
 
-DROP TABLE IF EXISTS wage_monthly_slip;
-DROP TABLE IF EXISTS wage_item_config;
-
-CREATE TABLE wage_item_config (
+CREATE TABLE IF NOT EXISTS wage_item_config (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
   tenant_id BIGINT NOT NULL,
   item_name VARCHAR(128) NOT NULL COMMENT '薪资项名称',
@@ -18,7 +15,7 @@ CREATE TABLE wage_item_config (
   KEY idx_wic_tenant (tenant_id)
 );
 
-CREATE TABLE wage_monthly_slip (
+CREATE TABLE IF NOT EXISTS wage_monthly_slip (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
   tenant_id BIGINT NOT NULL,
   belong_month VARCHAR(7) NOT NULL COMMENT '归属月份 如2024-10',

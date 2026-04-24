@@ -4,6 +4,8 @@ import { useToast } from '../../components/Toast'
 import { useConfirm } from '../../components/ConfirmDialog'
 import Modal from '../../components/Modal'
 import { PermGate, usePermissions } from '../../context/PermissionsContext'
+import { formatDateTime } from '../../lib/format'
+import { useStaleGuard } from '../../hooks/useStaleGuard'
 import { SYSTEM_PERMS } from '../../lib/system-perms'
 import type { ShopItem } from '../../types/system-crud'
 import OrgSidebar from './components/OrgSidebar'
@@ -47,10 +49,12 @@ export default function ShopManage() {
   const [list, setList] = useState<ShopItem[]>([])
   const [total, setTotal] = useState(0)
   const [current, setCurrent] = useState(1)
-  const [size] = useState(10)
+  const [size, setSize] = useState(10)
   const [loading, setLoading] = useState(false)
+  const [detailLoading, setDetailLoading] = useState(false)
   const [error, setError] = useState('')
   const [queryShopName, setQueryShopName] = useState('')
+  const [draftShopName, setDraftShopName] = useState('')
   const [searchNonce, setSearchNonce] = useState(0)
   const [selectedOrgId, setSelectedOrgId] = useState<number | undefined>(undefined)
 
@@ -64,9 +68,11 @@ export default function ShopManage() {
 
   // -- 来自 OrgSidebar 的引用数据 --
   const [orgOptions, setOrgOptions] = useState<{ id: number; label: string }[]>([])
+  const guard = useStaleGuard()
 
   // 1. 加载店铺表格数据
   const loadShops = useCallback(async () => {
+    const id = guard.nextId()
     setLoading(true)
     setError('')
     try {
@@ -78,14 +84,17 @@ export default function ShopManage() {
           orgId: selectedOrgId,
         })
       )
+      if (!guard.isCurrent(id)) return
       setList(rows)
       setTotal(t)
     } catch (e) {
+      if (!guard.isCurrent(id)) return
       setError(e instanceof Error ? e.message : '加载店铺失败')
     } finally {
+      if (!guard.isCurrent(id)) return
       setLoading(false)
     }
-  }, [current, size, queryShopName, searchNonce, selectedOrgId])
+  }, [current, size, queryShopName, searchNonce, selectedOrgId, guard])
 
   useEffect(() => {
     void loadShops()
@@ -94,11 +103,13 @@ export default function ShopManage() {
   // ================= 店铺 CRUD =================
 
   const handleSearch = () => {
+    setQueryShopName(draftShopName)
     setCurrent(1)
     setSearchNonce((n) => n + 1)
   }
 
   const handleReset = () => {
+    setDraftShopName('')
     setQueryShopName('')
     setCurrent(1)
     setSearchNonce((n) => n + 1)
@@ -117,7 +128,7 @@ export default function ShopManage() {
 
   const openEditShop = async (id: number) => {
     setShopFormErrors({})
-    setLoading(true)
+    setDetailLoading(true)
     try {
       const detail = await shopApi.getShopDetail(id)
       setShopForm({
@@ -130,7 +141,7 @@ export default function ShopManage() {
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '拉取详情失败')
     } finally {
-      setLoading(false)
+      setDetailLoading(false)
     }
   }
 
@@ -139,6 +150,7 @@ export default function ShopManage() {
     setShopFormErrors(errors)
     if (Object.keys(errors).length > 0) return
 
+    if (submitting) return
     setSubmitting(true)
     try {
       if (shopModal.isEdit && shopModal.id != null) {
@@ -165,6 +177,7 @@ export default function ShopManage() {
       await loadShops()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '删除失败')
+    } finally {
       setLoading(false)
     }
   }
@@ -182,6 +195,7 @@ export default function ShopManage() {
       await loadShops()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '更新状态失败')
+    } finally {
       setLoading(false)
     }
   }
@@ -190,6 +204,14 @@ export default function ShopManage() {
     if (!orgId) return '未知（' + String(orgId) + '）'
     const match = orgOptions.find((o) => o.id === orgId)
     return match ? match.label.replace(/—+ /g, '') : `机构 ${orgId}`
+  }
+
+  if (!can(SYSTEM_PERMS.shop.query)) {
+    return (
+      <div className="bg-white p-10 rounded-[2.5rem] shadow-sm ring-1 ring-slate-100 text-center text-slate-500 font-bold">
+        无权限访问：店铺管理
+      </div>
+    )
   }
 
   return (
@@ -233,8 +255,11 @@ export default function ShopManage() {
             <label className="text-[10px] font-black text-slate-400 uppercase">店铺名称检索</label>
             <input
               placeholder="搜索当前组织下的店铺名"
-              value={queryShopName}
-              onChange={(e) => setQueryShopName(e.target.value)}
+              value={draftShopName}
+              onChange={(e) => setDraftShopName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleSearch()
+              }}
               className="px-3 py-2 rounded-xl bg-slate-50 ring-1 ring-slate-200 text-sm w-56 focus:ring-indigo-500 outline-none transition"
             />
           </div>
@@ -278,13 +303,14 @@ export default function ShopManage() {
                 <th className="px-6 py-4 border-b border-slate-100">单元类型</th>
                 <th className="px-6 py-4 border-b border-slate-100">直属挂靠节点</th>
                 <th className="px-6 py-4 border-b border-slate-100">营运状态</th>
+                <th className="px-6 py-4 border-b border-slate-100">创建时间</th>
                 <th className="px-6 py-4 border-b border-slate-100 text-right">管理动作</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
               {list.length === 0 && !loading ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-16 text-center">
+                  <td colSpan={6} className="px-6 py-16 text-center">
                     <div className="text-slate-300 font-black text-lg">暂无关联店铺</div>
                     <div className="text-slate-400 text-xs font-normal mt-1">此组织机构域下尚未分配店铺实体</div>
                   </td>
@@ -322,11 +348,14 @@ export default function ShopManage() {
                         </span>
                       )}
                     </td>
+                    <td className="px-6 py-5 text-slate-500 text-xs">{formatDateTime(r.createTime)}</td>
                     <td className="px-6 py-5 text-right space-x-3">
                       <PermGate perms={[SYSTEM_PERMS.shop.edit]}>
                         <button
                           type="button"
-                          onClick={() => { if(r.id) openEditShop(r.id) }}
+                          onClick={() => {
+                            if (r.id) void openEditShop(r.id)
+                          }}
                           className="text-indigo-600 text-xs font-bold hover:text-indigo-800 transition"
                         >
                           编辑
@@ -350,7 +379,20 @@ export default function ShopManage() {
           </table>
           <div className="p-5 flex justify-between items-center bg-slate-50 text-xs text-slate-500 border-t border-slate-100">
             <span className="font-bold">查询命中 <span className="text-slate-900">{total}</span> 个商业单元</span>
-            <div className="flex gap-2">
+            <div className="flex items-center gap-2">
+              <select
+                value={size}
+                onChange={(e) => {
+                  setSize(Number(e.target.value))
+                  setCurrent(1)
+                }}
+                className="px-2 py-1 bg-white rounded-lg ring-1 ring-slate-200"
+              >
+                <option value={10}>10条/页</option>
+                <option value={20}>20条/页</option>
+                <option value={50}>50条/页</option>
+              </select>
+              <span>第 {current} / {Math.max(1, Math.ceil(total / size))} 页</span>
               <button
                 type="button"
                 disabled={current <= 1 || loading}
@@ -361,7 +403,7 @@ export default function ShopManage() {
               </button>
               <button
                 type="button"
-                disabled={current * size >= total || loading}
+                disabled={current >= Math.max(1, Math.ceil(total / size)) || loading}
                 onClick={() => setCurrent((c) => c + 1)}
                 className="px-3 py-1.5 rounded-lg bg-white shadow-sm ring-1 ring-slate-200 font-black text-slate-600 disabled:opacity-40 transition hover:bg-slate-50 disabled:hover:bg-white"
               >
@@ -445,7 +487,7 @@ export default function ShopManage() {
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-black text-slate-500 block">其他备注信包</label>
+                <label className="text-xs font-black text-slate-500 block">其他备注信息</label>
                 <textarea
                   value={shopForm.remark}
                   onChange={(e) =>
@@ -473,7 +515,7 @@ export default function ShopManage() {
                 disabled={submitting}
                 className="px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-black shadow-md hover:bg-indigo-700 transition flex items-center gap-2"
               >
-                {submitting ? '提交封存...' : '落库提交'}
+                {submitting ? '提交封存...' : detailLoading ? '加载中...' : '落库提交'}
               </button>
             </div>
       </Modal>

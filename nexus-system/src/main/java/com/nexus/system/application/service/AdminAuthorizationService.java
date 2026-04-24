@@ -41,6 +41,6 @@ public class AdminAuthorizationService {
         List<SysRole> roles = roleMapper.selectList(new LambdaQueryWrapper<SysRole>()
                 .in(SysRole::getId, roleIds)
                 .eq(SysRole::getDelFlag, 0));
-        return roles.stream().anyMatch(r -> ROLE_ADMIN.equals(r.getRoleCode()));
+        return roles.stream().anyMatch(r -> ROLE_ADMIN.equalsIgnoreCase(r.getRoleCode()));
     }
 }

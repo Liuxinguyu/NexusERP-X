@@ -94,6 +94,8 @@ spring:
           predicates:
             - Path=/api/v1/wage/**
 
+# 仅暴露 health、info；网关 AuthenticationGlobalFilter 的 actuator 白名单须与此一致，
+# 勿在代码中放行 /actuator/** 通配，以免新增 actuator 端点时被动对外暴露。
 management:
   endpoints:
     web:

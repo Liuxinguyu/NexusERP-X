@@ -1,7 +1,9 @@
 package com.nexus.erp.application.dto;
 
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.PositiveOrZero;
 import lombok.Data;
 
 import java.io.Serial;
@@ -23,7 +25,9 @@ public final class FinDtos {
         private static final long serialVersionUID = 1L;
         private Long customerId;
         private Integer status;
+        @Pattern(regexp = "^\\d{4}-\\d{2}-\\d{2}$", message = "dateFrom格式必须为yyyy-MM-dd")
         private String dateFrom;
+        @Pattern(regexp = "^\\d{4}-\\d{2}-\\d{2}$", message = "dateTo格式必须为yyyy-MM-dd")
         private String dateTo;
     }
 
@@ -32,10 +36,11 @@ public final class FinDtos {
         @Serial
         private static final long serialVersionUID = 1L;
         @NotNull private Long customerId;
-        @NotBlank private String customerName;
-        @NotNull private BigDecimal totalAmount;
+        private String customerName;
+        @NotNull @PositiveOrZero(message = "应收总金额必须大于等于0") private BigDecimal totalAmount;
+        @Pattern(regexp = "^(sale_order)$", message = "sourceType仅支持sale_order")
         private String sourceType;
-        private Long sourceId;
+        @NotNull @Positive(message = "sourceId必须大于0") private Long sourceId;
         private String invoiceNo;
         private LocalDate dueDate;
         private String remark;
@@ -55,6 +60,7 @@ public final class FinDtos {
         @Serial
         private static final long serialVersionUID = 1L;
         @NotNull(message = "收款金额不能为空")
+        @Positive(message = "收款金额必须大于0")
         private BigDecimal amount;
         private String paymentMethod;
         private String paymentAccount;
@@ -119,7 +125,9 @@ public final class FinDtos {
         private static final long serialVersionUID = 1L;
         private Long supplierId;
         private Integer status;
+        @Pattern(regexp = "^\\d{4}-\\d{2}-\\d{2}$", message = "dateFrom格式必须为yyyy-MM-dd")
         private String dateFrom;
+        @Pattern(regexp = "^\\d{4}-\\d{2}-\\d{2}$", message = "dateTo格式必须为yyyy-MM-dd")
         private String dateTo;
     }
 
@@ -128,10 +136,11 @@ public final class FinDtos {
         @Serial
         private static final long serialVersionUID = 1L;
         @NotNull private Long supplierId;
-        @NotBlank private String supplierName;
-        @NotNull private BigDecimal totalAmount;
+        private String supplierName;
+        @NotNull @PositiveOrZero(message = "应付总金额必须大于等于0") private BigDecimal totalAmount;
+        @Pattern(regexp = "^(purchase_order)$", message = "sourceType仅支持purchase_order")
         private String sourceType;
-        private Long sourceId;
+        @NotNull @Positive(message = "sourceId必须大于0") private Long sourceId;
         private String invoiceNo;
         private LocalDate dueDate;
         private String remark;
@@ -151,6 +160,7 @@ public final class FinDtos {
         @Serial
         private static final long serialVersionUID = 1L;
         @NotNull(message = "付款金额不能为空")
+        @Positive(message = "付款金额必须大于0")
         private BigDecimal amount;
         private String paymentMethod;
         private String paymentAccount;

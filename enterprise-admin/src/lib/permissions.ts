@@ -69,12 +69,12 @@ export function hasPermi(set: Set<string>, permission: string): boolean {
 }
 
 export function hasAnyPerm(set: Set<string>, permissions: string[]): boolean {
-  if (permissions.length === 0) return true
+  if (permissions.length === 0) return false
   return permissions.some((p) => hasPermi(set, p))
 }
 
 export function hasAllPerm(set: Set<string>, permissions: string[]): boolean {
-  if (permissions.length === 0) return true
+  if (permissions.length === 0) return false
   return permissions.every((p) => hasPermi(set, p))
 }
 
@@ -85,14 +85,7 @@ export function hasRole(roles: string[], role: string): boolean {
 }
 
 export function hasAnyRole(roles: string[], targets: string[]): boolean {
-  if (targets.length === 0) return true
+  if (targets.length === 0) return false
   return targets.some((r) => hasRole(roles, r))
-}
-
-/**
- * 开发环境下若后端暂未返回任何权限，避免所有按钮被隐藏（生产环境仍严格按集合判断）。
- */
-export function shouldAllowWhenNoPermsLoaded(): boolean {
-  return Boolean(import.meta.env.DEV)
 }
 

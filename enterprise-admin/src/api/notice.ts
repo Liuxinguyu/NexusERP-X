@@ -3,7 +3,7 @@ import type { PageResult } from '../types/api'
 import type { NoticeRow } from '../types/oa-crud'
 
 export const noticeApi = {
-  page: (params: { pageNum: number; pageSize: number }) =>
+  page: (params: { current: number; size: number }) =>
     httpGet<PageResult<NoticeRow>>('/system/notice/page', { params }),
   create: (body: Partial<NoticeRow>) =>
     httpPost<unknown>('/system/notice', body),

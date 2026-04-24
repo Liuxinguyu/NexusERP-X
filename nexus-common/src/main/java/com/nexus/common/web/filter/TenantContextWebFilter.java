@@ -30,61 +30,79 @@ public class TenantContextWebFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
         try {
-            Long tenantId = parseLongHeader(request, NexusRequestHeaders.TENANT_ID);
-            if (tenantId == null) {
-                tenantId = tenantProperties.getDefaultTenantId();
-            }
-            if (tenantId != null) {
-                TenantContext.setTenantId(tenantId);
-            }
-
-            Long shopId = parseLongHeader(request, NexusRequestHeaders.SHOP_ID);
-            if (shopId == null) {
-                shopId = tenantProperties.getDefaultShopId();
-            }
-            if (shopId != null) {
-                OrgContext.setShopId(shopId);
+            Long existingTenantId = TenantContext.getTenantId();
+            if (existingTenantId == null) {
+                Long tenantId = parseLongHeader(request, NexusRequestHeaders.TENANT_ID);
+                if (tenantId == null) {
+                    tenantId = tenantProperties.getDefaultTenantId();
+                }
+                if (tenantId != null) {
+                    TenantContext.setTenantId(tenantId);
+                }
             }
 
-            Long orgId = parseLongHeader(request, NexusRequestHeaders.ORG_ID);
-            if (orgId == null) {
-                orgId = tenantProperties.getDefaultOrgId();
-            }
-            if (orgId != null) {
-                OrgContext.setOrgId(orgId);
-            }
-
-            Integer dataScope = parseIntHeader(request, NexusRequestHeaders.DATA_SCOPE);
-            if (dataScope != null) {
-                OrgContext.setDataScope(dataScope);
+            if (OrgContext.getShopId() == null) {
+                Long shopId = parseLongHeader(request, NexusRequestHeaders.SHOP_ID);
+                if (shopId == null) {
+                    shopId = tenantProperties.getDefaultShopId();
+                }
+                if (shopId != null) {
+                    OrgContext.setShopId(shopId);
+                }
             }
 
-            List<Long> accessibleShops = parseLongListHeader(request, NexusRequestHeaders.ACCESSIBLE_SHOP_IDS);
-            if (!accessibleShops.isEmpty()) {
-                OrgContext.setAccessibleShopIds(accessibleShops);
+            if (OrgContext.getOrgId() == null) {
+                Long orgId = parseLongHeader(request, NexusRequestHeaders.ORG_ID);
+                if (orgId == null) {
+                    orgId = tenantProperties.getDefaultOrgId();
+                }
+                if (orgId != null) {
+                    OrgContext.setOrgId(orgId);
+                }
             }
 
-            List<Long> accessibleOrgs = parseLongListHeader(request, NexusRequestHeaders.ACCESSIBLE_ORG_IDS);
-            if (!accessibleOrgs.isEmpty()) {
-                OrgContext.setAccessibleOrgIds(accessibleOrgs);
-            }
+            // 身份上下文（userId、dataScope、accessibleIds 等）只在 JWT 层已设定后才信任 header，
+            // 防止直连下游时伪造身份或权限。
+            boolean trustedContext = TenantContext.getTenantId() != null
+                    && GatewayUserContext.getUserId() != null;
 
-            Long userIdHdr = parseLongHeader(request, InternalAuthInterceptor.HEADER_USER_ID);
-            if (userIdHdr != null) {
-                DataScopeContext.setUserId(userIdHdr);
+            if (trustedContext) {
+                if (DataScopeContext.getDataScope() == null) {
+                    Integer dataScope = parseIntHeader(request, NexusRequestHeaders.DATA_SCOPE);
+                    if (dataScope != null) {
+                        DataScopeContext.setDataScope(dataScope);
+                    }
+                }
+
+                if (OrgContext.getAccessibleShopIds().isEmpty()) {
+                    List<Long> accessibleShops = parseLongListHeader(request, NexusRequestHeaders.ACCESSIBLE_SHOP_IDS);
+                    if (!accessibleShops.isEmpty()) {
+                        OrgContext.setAccessibleShopIds(accessibleShops);
+                    }
+                }
+
+                if (OrgContext.getAccessibleOrgIds().isEmpty()) {
+                    List<Long> accessibleOrgs = parseLongListHeader(request, NexusRequestHeaders.ACCESSIBLE_ORG_IDS);
+                    if (!accessibleOrgs.isEmpty()) {
+                        OrgContext.setAccessibleOrgIds(accessibleOrgs);
+                    }
+                }
+
+                Long userIdHdr = parseLongHeader(request, InternalAuthInterceptor.HEADER_USER_ID);
+                if (userIdHdr != null) {
+                    DataScopeContext.setUserId(userIdHdr);
+                }
             }
-            if (orgId != null) {
-                DataScopeContext.setDeptId(orgId);
-            }
-            if (dataScope != null) {
-                DataScopeContext.setDataScope(dataScope);
+            Long currentOrgId = OrgContext.getOrgId();
+            if (currentOrgId != null) {
+                DataScopeContext.setDeptId(currentOrgId);
             }
 
             filterChain.doFilter(request, response);
         } finally {
-            TenantContext.clear();
+            TenantContext.remove();
             OrgContext.clear();
-            GatewayUserContext.clear();
+            GatewayUserContext.remove();
             DataScopeContext.clear();
         }
     }

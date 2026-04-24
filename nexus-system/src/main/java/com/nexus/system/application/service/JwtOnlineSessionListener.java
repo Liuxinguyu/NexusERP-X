@@ -15,6 +15,8 @@ public class JwtOnlineSessionListener {
 
     @EventListener
     public void onAuthenticated(JwtTokenAuthenticatedEvent event) {
-        onlineUserRedisService.refreshTokenTtl(event.getRawToken());
+        if (event.getPrincipal() != null) {
+            onlineUserRedisService.refreshTokenTtl(event.getPrincipal().getJti());
+        }
     }
 }

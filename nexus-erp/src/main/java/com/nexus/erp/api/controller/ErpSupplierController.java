@@ -5,9 +5,9 @@ import com.nexus.common.annotation.OpLog;
 import com.nexus.common.core.domain.Result;
 import com.nexus.erp.application.dto.ErpFoundationDtos;
 import com.nexus.erp.application.service.ErpSupplierApplicationService;
-import com.nexus.erp.domain.model.ErpSupplier;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -28,7 +28,8 @@ public class ErpSupplierController {
     private final ErpSupplierApplicationService supplierApplicationService;
 
     @GetMapping("/page")
-    public Result<IPage<ErpSupplier>> page(
+    @PreAuthorize("@ss.hasPermi('erp:supplier:list')")
+    public Result<IPage<ErpFoundationDtos.SupplierVO>> page(
             @RequestParam(defaultValue = "1") long current,
             @RequestParam(defaultValue = "10") long size,
             @RequestParam(required = false) String supplierName) {
@@ -36,12 +37,14 @@ public class ErpSupplierController {
     }
 
     @PostMapping
+    @PreAuthorize("@ss.hasPermi('erp:supplier:add')")
     @OpLog(module = "ERP供应商", type = "新增")
     public Result<Long> create(@Valid @RequestBody ErpFoundationDtos.SupplierCreateRequest req) {
         return Result.ok(supplierApplicationService.create(req));
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("@ss.hasPermi('erp:supplier:edit')")
     @OpLog(module = "ERP供应商", type = "修改")
     public Result<Void> update(@PathVariable Long id,
                                @Valid @RequestBody ErpFoundationDtos.SupplierUpdateRequest req) {
@@ -50,6 +53,7 @@ public class ErpSupplierController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("@ss.hasPermi('erp:supplier:delete')")
     @OpLog(module = "ERP供应商", type = "删除")
     public Result<Void> delete(@PathVariable Long id) {
         supplierApplicationService.delete(id);

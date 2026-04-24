@@ -2,11 +2,15 @@ import { useCallback, useEffect, useState } from 'react'
 import { monthlySlipApi } from '../../api/wage-crud'
 import { useToast } from '../../components/Toast'
 import { useConfirm } from '../../components/ConfirmDialog'
+import { PermGate, usePermissions } from '../../context/PermissionsContext'
+import { WAGE_PERMS } from '../../lib/business-perms'
+import { useStaleGuard } from '../../hooks/useStaleGuard'
 import type { MonthlySlipRow } from '../../types/wage-crud'
 
 export default function SlipManage() {
   const toast = useToast()
   const confirm = useConfirm()
+  const { can } = usePermissions()
   const [list, setList] = useState<MonthlySlipRow[]>([])
   const [loading, setLoading] = useState(false)
   const [month, setMonth] = useState(() => {
@@ -15,24 +19,36 @@ export default function SlipManage() {
   })
   const [generating, setGenerating] = useState(false)
   const [confirming, setConfirming] = useState(false)
+  const [adjusting, setAdjusting] = useState(false)
   const [adjustModal, setAdjustModal] = useState<MonthlySlipRow | null>(null)
   const [baseSalary, setBaseSalary] = useState('')
   const [subsidyTotal, setSubsidyTotal] = useState('')
   const [deductionTotal, setDeductionTotal] = useState('')
+  const guard = useStaleGuard()
 
   const loadData = useCallback(async () => {
+    const id = guard.nextId()
     setLoading(true)
-    try { setList(await monthlySlipApi.list({ belongMonth: month })) }
+    try {
+      const rows = await monthlySlipApi.list({ belongMonth: month })
+      if (!guard.isCurrent(id)) return
+      setList(rows)
+    }
     catch (e) {
+      if (!guard.isCurrent(id)) return
       toast.error(e instanceof Error ? e.message : '加载工资条失败')
       setList([])
     }
-    finally { setLoading(false) }
-  }, [month])
+    finally {
+      if (!guard.isCurrent(id)) return
+      setLoading(false)
+    }
+  }, [month, toast, guard])
 
   useEffect(() => { void loadData() }, [loadData])
 
   const handleGenerate = async () => {
+    if (generating) return
     setGenerating(true)
     try { await monthlySlipApi.generate({ belongMonth: month }); toast.success('工资条生成成功'); void loadData() }
     catch (e) { toast.error(e instanceof Error ? e.message : '生成失败') }
@@ -44,6 +60,7 @@ export default function SlipManage() {
     if (!ids.length) { toast.error('没有待发放的工资条'); return }
     const ok = await confirm({ title: '确认发放', message: `确认发放 ${month} 共 ${ids.length} 条工资？` })
     if (!ok) return
+    if (confirming) return
     setConfirming(true)
     try { await monthlySlipApi.confirmPay({ slipIds: ids }); toast.success('工资发放成功'); void loadData() }
     catch (e) { toast.error(e instanceof Error ? e.message : '发放失败') }
@@ -59,8 +76,10 @@ export default function SlipManage() {
 
   const handleAdjust = async () => {
     if (adjustModal?.id == null) return
+    if (adjusting) return
     const ok = await confirm({ title: '薪资调整', message: '确认提交此次薪资调整？' })
     if (!ok) return
+    setAdjusting(true)
     try {
       await monthlySlipApi.adjust(adjustModal.id, {
         baseSalary: Number(baseSalary) || 0,
@@ -71,11 +90,16 @@ export default function SlipManage() {
       toast.success('薪资调整成功')
       void loadData()
     } catch (e) { toast.error(e instanceof Error ? e.message : '调整失败') }
+    finally { setAdjusting(false) }
   }
 
   const statusLabel = (s?: number) => {
     if (s === 1) return <span className="text-emerald-600">已发放</span>
     return <span className="text-amber-500">待发放</span>
+  }
+
+  if (!can(WAGE_PERMS.slip.list)) {
+    return <div className="p-8 text-center text-slate-400 font-bold">暂无权限访问</div>
   }
 
   return (
@@ -89,14 +113,18 @@ export default function SlipManage() {
           </div>
         </div>
         <div className="flex gap-3">
-          <button onClick={handleGenerate} disabled={generating}
-            className="px-6 py-2 bg-white rounded-2xl ring-1 ring-slate-200 text-xs font-black text-slate-600 hover:bg-slate-50 transition-all disabled:opacity-60">
-            {generating ? '生成中...' : '批量生成'}
-          </button>
-          <button onClick={handleConfirmPay} disabled={confirming}
-            className="px-6 py-2 bg-indigo-600 text-white rounded-2xl text-xs font-black shadow-lg shadow-indigo-200 hover:bg-indigo-500 transition-all disabled:opacity-60">
-            {confirming ? '发放中...' : '确认发放'}
-          </button>
+          <PermGate perms={[WAGE_PERMS.slip.generate]}>
+            <button onClick={() => void handleGenerate()} disabled={generating}
+              className="px-6 py-2 bg-white rounded-2xl ring-1 ring-slate-200 text-xs font-black text-slate-600 hover:bg-slate-50 transition-all disabled:opacity-60">
+              {generating ? '生成中...' : '批量生成'}
+            </button>
+          </PermGate>
+          <PermGate perms={[WAGE_PERMS.slip.confirm]}>
+            <button onClick={() => void handleConfirmPay()} disabled={confirming}
+              className="px-6 py-2 bg-indigo-600 text-white rounded-2xl text-xs font-black shadow-lg shadow-indigo-200 hover:bg-indigo-500 transition-all disabled:opacity-60">
+              {confirming ? '发放中...' : '确认发放'}
+            </button>
+          </PermGate>
         </div>
       </div>
 
@@ -127,7 +155,9 @@ export default function SlipManage() {
                 <td className="px-8 py-6 text-right text-lg font-black text-slate-900">¥{(row.netPay ?? 0).toLocaleString()}</td>
                 <td className="px-8 py-6 text-center text-xs font-black">{statusLabel(row.status)}</td>
                 <td className="px-8 py-6 text-right">
-                  <button onClick={() => openAdjust(row)} className="text-indigo-600 text-xs font-black hover:underline">调整</button>
+                  <PermGate perms={[WAGE_PERMS.slip.edit]}>
+                    <button onClick={() => void openAdjust(row)} className="text-indigo-600 text-xs font-black hover:underline">调整</button>
+                  </PermGate>
                 </td>
               </tr>
             ))}
@@ -156,7 +186,7 @@ export default function SlipManage() {
             </div>
             <div className="flex gap-4">
               <button onClick={() => setAdjustModal(null)} className="flex-1 py-3 bg-white rounded-2xl ring-1 ring-slate-200 font-black text-xs text-slate-400">取消</button>
-              <button onClick={handleAdjust} className="flex-[2] py-3 bg-indigo-600 text-white rounded-2xl font-black text-xs hover:bg-indigo-500 transition-all">确认调整</button>
+              <button onClick={() => void handleAdjust()} disabled={adjusting} className="flex-[2] py-3 bg-indigo-600 text-white rounded-2xl font-black text-xs hover:bg-indigo-500 transition-all disabled:opacity-60">确认调整</button>
             </div>
           </div>
         </div>

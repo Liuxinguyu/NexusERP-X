@@ -15,6 +15,7 @@ import com.nexus.erp.domain.model.ErpWarehouse;
 import com.nexus.erp.infrastructure.mapper.ErpProductInfoMapper;
 import com.nexus.erp.infrastructure.mapper.ErpPurchaseOrderItemMapper;
 import com.nexus.erp.infrastructure.mapper.ErpPurchaseOrderMapper;
+import com.nexus.erp.infrastructure.mapper.ErpStockMapper;
 import com.nexus.erp.infrastructure.mapper.ErpSupplierMapper;
 import com.nexus.erp.infrastructure.mapper.ErpWarehouseMapper;
 import com.nexus.erp.application.service.FinPayableApplicationService;
@@ -27,9 +28,11 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Map;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 public class ErpPurchaseOrderApplicationService {
@@ -37,6 +40,7 @@ public class ErpPurchaseOrderApplicationService {
     private static final int STATUS_DRAFT = 0;
     private static final int STATUS_PENDING_REVIEW = 1;
     private static final int STATUS_APPROVED = 2;
+    private static final int STATUS_INBOUND = 3;
     private static final int STATUS_REJECTED = -1;
 
     private final ErpPurchaseOrderMapper purchaseOrderMapper;
@@ -44,6 +48,7 @@ public class ErpPurchaseOrderApplicationService {
     private final ErpProductInfoMapper productInfoMapper;
     private final ErpSupplierMapper supplierMapper;
     private final ErpWarehouseMapper warehouseMapper;
+    private final ErpStockMapper stockMapper;
     private final FinPayableApplicationService finPayableService;
 
     public ErpPurchaseOrderApplicationService(ErpPurchaseOrderMapper purchaseOrderMapper,
@@ -51,12 +56,14 @@ public class ErpPurchaseOrderApplicationService {
                                               ErpProductInfoMapper productInfoMapper,
                                               ErpSupplierMapper supplierMapper,
                                               ErpWarehouseMapper warehouseMapper,
+                                              ErpStockMapper stockMapper,
                                               @Lazy FinPayableApplicationService finPayableService) {
         this.purchaseOrderMapper = purchaseOrderMapper;
         this.purchaseOrderItemMapper = purchaseOrderItemMapper;
         this.productInfoMapper = productInfoMapper;
         this.supplierMapper = supplierMapper;
         this.warehouseMapper = warehouseMapper;
+        this.stockMapper = stockMapper;
         this.finPayableService = finPayableService;
     }
 
@@ -86,14 +93,7 @@ public class ErpPurchaseOrderApplicationService {
         ensureSupplier(tenantId, req.getSupplierId());
         ensureWarehouse(tenantId, req.getWarehouseId());
 
-        BigDecimal total = BigDecimal.ZERO;
-        for (ErpOrderDtos.PurchaseOrderLineRequest line : req.getItems()) {
-            ensureProduct(tenantId, line.getProductId());
-            BigDecimal sub = line.getUnitPrice()
-                    .multiply(BigDecimal.valueOf(line.getQuantity()))
-                    .setScale(2, RoundingMode.HALF_UP);
-            total = total.add(sub);
-        }
+        BigDecimal total = calculateAndFillItemPrices(req.getItems(), tenantId);
 
         ErpPurchaseOrder order = new ErpPurchaseOrder();
         order.setTenantId(tenantId);
@@ -106,9 +106,8 @@ public class ErpPurchaseOrderApplicationService {
         purchaseOrderMapper.insert(order);
 
         for (ErpOrderDtos.PurchaseOrderLineRequest line : req.getItems()) {
-            BigDecimal sub = line.getUnitPrice()
-                    .multiply(BigDecimal.valueOf(line.getQuantity()))
-                    .setScale(2, RoundingMode.HALF_UP);
+            BigDecimal rawSubTotal = line.getUnitPrice().multiply(BigDecimal.valueOf(line.getQuantity()));
+            BigDecimal sub = rawSubTotal.setScale(2, RoundingMode.HALF_UP);
             ErpPurchaseOrderItem it = new ErpPurchaseOrderItem();
             it.setTenantId(tenantId);
             it.setOrderId(order.getId());
@@ -122,6 +121,66 @@ public class ErpPurchaseOrderApplicationService {
     }
 
     /**
+     * 快捷入库流程：创建草稿 -> 直接进入已审核 -> 执行入库履约。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public Long quickInbound(ErpOrderDtos.PurchaseOrderCreateRequest req) {
+        Long tenantId = requireTenantId();
+        Long orderId = create(req);
+        ErpPurchaseOrder order = loadOrder(orderId, tenantId);
+        if (!Objects.equals(order.getStatus(), STATUS_DRAFT)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "仅草稿状态可执行快捷入库");
+        }
+        order.setStatus(STATUS_APPROVED);
+        if (purchaseOrderMapper.updateById(order) == 0) {
+            throw new BusinessException(ResultCode.CONFLICT, "采购单状态已变化，请刷新后重试");
+        }
+        performInbound(order, listOrderItems(orderId, tenantId), tenantId);
+        return orderId;
+    }
+
+    private BigDecimal calculateAndFillItemPrices(List<ErpOrderDtos.PurchaseOrderLineRequest> items, Long tenantId) {
+        List<Long> productIds = items.stream()
+                .map(ErpOrderDtos.PurchaseOrderLineRequest::getProductId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+        if (productIds.isEmpty()) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "订单明细中缺少商品ID");
+        }
+        List<ErpProductInfo> products = productInfoMapper.selectBatchIds(productIds);
+        Map<Long, ErpProductInfo> productMap = products.stream()
+                .filter(p -> p != null
+                        && Objects.equals(p.getTenantId(), tenantId)
+                        && (p.getDelFlag() == null || p.getDelFlag() == 0)
+                        && (p.getStatus() == null || p.getStatus() == 1))
+                .collect(Collectors.toMap(ErpProductInfo::getId, p -> p, (a, b) -> a));
+        if (productMap.size() < productIds.size()) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "部分商品不存在、已下架或无权访问，请刷新后重试");
+        }
+
+        BigDecimal totalAmount = BigDecimal.ZERO;
+        for (ErpOrderDtos.PurchaseOrderLineRequest line : items) {
+            if (line.getQuantity() == null || line.getQuantity() <= 0) {
+                throw new BusinessException(ResultCode.BAD_REQUEST, "商品数量非法，必须大于0");
+            }
+            ErpProductInfo productInfo = productMap.get(line.getProductId());
+            if (productInfo == null) {
+                throw new BusinessException(ResultCode.BAD_REQUEST, "部分商品不存在、已下架或无权访问，请刷新后重试");
+            }
+            BigDecimal realPrice = productInfo.getPrice();
+            if (realPrice == null) {
+                throw new BusinessException(ResultCode.BAD_REQUEST,
+                        String.format("商品 [%s] 未配置基础价格，禁止下单", productInfo.getProductName()));
+            }
+            line.setUnitPrice(realPrice);
+            BigDecimal rawSubTotal = realPrice.multiply(BigDecimal.valueOf(line.getQuantity()));
+            totalAmount = totalAmount.add(rawSubTotal);
+        }
+        return totalAmount;
+    }
+
+    /**
      * 确认入库：增加库存，单据置为已入库（仅已审核状态可操作）。
      */
     @Transactional(rollbackFor = Exception.class)
@@ -131,24 +190,7 @@ public class ErpPurchaseOrderApplicationService {
         if (!Objects.equals(order.getStatus(), STATUS_APPROVED)) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "仅已审核的单据可确认入库");
         }
-        List<ErpPurchaseOrderItem> items = purchaseOrderItemMapper.selectList(new LambdaQueryWrapper<ErpPurchaseOrderItem>()
-                .eq(ErpPurchaseOrderItem::getTenantId, tenantId)
-                .eq(ErpPurchaseOrderItem::getOrderId, orderId)
-                .eq(ErpPurchaseOrderItem::getDelFlag, 0));
-        for (ErpPurchaseOrderItem it : items) {
-            ErpProductInfo p = productInfoMapper.selectById(it.getProductId());
-            if (p == null || !Objects.equals(p.getTenantId(), tenantId) || (p.getDelFlag() != null && p.getDelFlag() == 1)) {
-                throw new BusinessException(ResultCode.NOT_FOUND, "产品不存在: " + it.getProductId());
-            }
-            int stock = p.getStockQty() == null ? 0 : p.getStockQty();
-            p.setStockQty(stock + it.getQuantity());
-            productInfoMapper.updateById(p);
-        }
-        order.setStatus(3); // 3=已入库
-        purchaseOrderMapper.updateById(order);
-
-        // 自动创建应付记录
-        finPayableService.createFromPurchaseOrder(order.getId());
+        performInbound(order, listOrderItems(orderId, tenantId), tenantId);
     }
 
     /**
@@ -162,7 +204,9 @@ public class ErpPurchaseOrderApplicationService {
             throw new BusinessException(ResultCode.BAD_REQUEST, "仅草稿状态可提交审核");
         }
         order.setStatus(STATUS_PENDING_REVIEW);
-        purchaseOrderMapper.updateById(order);
+        if (purchaseOrderMapper.updateById(order) == 0) {
+            throw new BusinessException(ResultCode.CONFLICT, "采购单状态已变化，请刷新后重试");
+        }
     }
 
     /**
@@ -176,7 +220,9 @@ public class ErpPurchaseOrderApplicationService {
             throw new BusinessException(ResultCode.BAD_REQUEST, "仅待审核状态可审核通过");
         }
         order.setStatus(STATUS_APPROVED);
-        purchaseOrderMapper.updateById(order);
+        if (purchaseOrderMapper.updateById(order) == 0) {
+            throw new BusinessException(ResultCode.CONFLICT, "采购单状态已变化，请刷新后重试");
+        }
     }
 
     /**
@@ -190,24 +236,46 @@ public class ErpPurchaseOrderApplicationService {
             throw new BusinessException(ResultCode.BAD_REQUEST, "仅待审核状态可拒绝");
         }
         order.setStatus(STATUS_REJECTED);
-        purchaseOrderMapper.updateById(order);
+        if (purchaseOrderMapper.updateById(order) == 0) {
+            throw new BusinessException(ResultCode.CONFLICT, "采购单状态已变化，请刷新后重试");
+        }
     }
 
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long orderId) {
         Long tenantId = requireTenantId();
         ErpPurchaseOrder order = loadOrder(orderId, tenantId);
-        if (Objects.equals(order.getStatus(), 3) || Objects.equals(order.getStatus(), STATUS_APPROVED)) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "已审核/已入库的单据不可删除");
+        if (!Objects.equals(order.getStatus(), STATUS_DRAFT) && !Objects.equals(order.getStatus(), STATUS_REJECTED)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "仅草稿或已拒绝单据可删除");
         }
-        List<ErpPurchaseOrderItem> items = purchaseOrderItemMapper.selectList(new LambdaQueryWrapper<ErpPurchaseOrderItem>()
-                .eq(ErpPurchaseOrderItem::getOrderId, orderId)
-                .eq(ErpPurchaseOrderItem::getTenantId, tenantId)
-                .eq(ErpPurchaseOrderItem::getDelFlag, 0));
+        List<ErpPurchaseOrderItem> items = listOrderItems(orderId, tenantId);
         for (ErpPurchaseOrderItem it : items) {
-            purchaseOrderItemMapper.deleteById(it.getId());
+            it.setDelFlag(1);
+            purchaseOrderItemMapper.updateById(it);
         }
-        purchaseOrderMapper.deleteById(order.getId());
+        order.setDelFlag(1);
+        if (purchaseOrderMapper.updateById(order) == 0) {
+            throw new BusinessException(ResultCode.CONFLICT, "采购单状态已变化，请刷新后重试");
+        }
+    }
+
+    private void performInbound(ErpPurchaseOrder order, List<ErpPurchaseOrderItem> items, Long tenantId) {
+        for (ErpPurchaseOrderItem it : items) {
+            ensureProduct(tenantId, it.getProductId());
+            stockMapper.upsertIncreaseStock(tenantId, it.getProductId(), order.getWarehouseId(), it.getQuantity());
+        }
+        order.setStatus(STATUS_INBOUND);
+        if (purchaseOrderMapper.updateById(order) == 0) {
+            throw new BusinessException(ResultCode.CONFLICT, "采购单状态已变化，请刷新后重试");
+        }
+        finPayableService.createFromPurchaseOrder(order.getId());
+    }
+
+    private List<ErpPurchaseOrderItem> listOrderItems(Long orderId, Long tenantId) {
+        return purchaseOrderItemMapper.selectList(new LambdaQueryWrapper<ErpPurchaseOrderItem>()
+                .eq(ErpPurchaseOrderItem::getTenantId, tenantId)
+                .eq(ErpPurchaseOrderItem::getOrderId, orderId)
+                .eq(ErpPurchaseOrderItem::getDelFlag, 0));
     }
 
     private ErpPurchaseOrder loadOrder(Long orderId, Long tenantId) {

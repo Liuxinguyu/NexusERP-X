@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { approvalApi } from './api/oa-crud';
 import { systemApi } from './api/system-crud';
 import { authApi } from './api/auth';
@@ -6,7 +6,9 @@ import { beginPreAuthLogin, completeShopLogin } from './lib/auth-flow';
 import { pickPageRecords } from './lib/http-helpers';
 import { resolveComponent } from './lib/component-registry';
 import { PermissionsProvider, usePermissions, type MenuNode } from './context/PermissionsContext';
+import { RouteErrorBoundary } from './components/RouteErrorBoundary';
 import {
+  clearAuthSession,
   clearPendingLoginContext,
   getAccessToken,
   getCurrentShopId,
@@ -206,6 +208,16 @@ export default function App() {
     () => Boolean(getAccessToken()),
   );
 
+  const handleLogout = useCallback(async () => {
+    try {
+      await authApi.logout();
+    } catch {
+      /* 仍清本地，避免 token 残留 */
+    }
+    clearAuthSession();
+    setAuthenticated(false);
+  }, []);
+
   useEffect(() => {
     const onAuthExpired = () => setAuthenticated(false);
     window.addEventListener('nexus-auth-expired', onAuthExpired);
@@ -218,30 +230,27 @@ export default function App() {
 
   return (
     <PermissionsProvider>
-      <AppInner />
+      <AppInner onLogout={handleLogout} />
     </PermissionsProvider>
   );
 }
 
-function AppInner() {
+function AppInner({ onLogout }: { onLogout: () => void }) {
   const { user, menus: apiMenus } = usePermissions();
   const [activeGroupId, setActiveGroupId] = useState<number | null>(null);
   const [activePageId, setActivePageId] = useState<number | null>(null);
   const [isDashboard, setIsDashboard] = useState(true);
-  const [revenueText, setRevenueText] = useState('¥1,280,000');
+  const [revenueText, setRevenueText] = useState('-');
   const [dashboardData, setDashboardData] = useState<DashboardSummary>({});
   const [currentShopIdState, setCurrentShopIdState] = useState<number | null>(
     () => getCurrentShopId(),
   );
-  const [tenantIdState] = useState<number | null>(
+  const [tenantIdState, setTenantIdState] = useState<number | null>(
     () => getTenantId(),
   );
   const [shopSwitching, setShopSwitching] = useState(false);
-  const [actionItems, setActionItems] = useState<Array<{ t: string; d: string; c: string }>>([
-    { t: '审批：年假申请', d: 'Zhang San', c: 'bg-amber-50 text-amber-600' },
-    { t: '预警：库存不足', d: 'MBP 14"', c: 'bg-rose-50 text-rose-600' },
-    { t: '合同：待收账款', d: 'Acme Corp', c: 'bg-indigo-50 text-indigo-600' },
-  ]);
+  const shopSwitchingRef = useRef(false);
+  const [actionItems, setActionItems] = useState<Array<{ t: string; d: string; c: string }>>([]);
 
   // Merge API menus with fallback: API menus take priority, fallback fills gaps
   const menuGroups = useMemo(() => {
@@ -310,10 +319,13 @@ function AppInner() {
     void (async () => {
       try {
         const dashboard = await systemApi.getDashboard();
-        const revenue = Number(dashboard.revenueToday ?? dashboard.revenue ?? 1280000) || 1280000;
-        setRevenueText(`¥${revenue.toLocaleString()}`);
+        const revenue = Number(dashboard.revenueToday ?? dashboard.revenue ?? 0);
+        setRevenueText(Number.isNaN(revenue) ? '-' : `¥${revenue.toLocaleString()}`);
         setDashboardData(dashboard);
-      } catch { /* Keep mock fallback */ }
+      } catch {
+        setRevenueText('-');
+        setDashboardData({});
+      }
     })();
   }, []);
 
@@ -328,12 +340,16 @@ function AppInner() {
           c: idx % 2 === 0 ? 'bg-amber-50 text-amber-600' : 'bg-indigo-50 text-indigo-600',
         }));
         if (mapped.length > 0) setActionItems(mapped);
-      } catch { /* Keep mock fallback */ }
+      } catch {
+        setActionItems([]);
+      }
     })();
   }, []);
 
   const handleSwitchShop = async (shopId: number) => {
     if (shopId === currentShopIdState) return;
+    if (shopSwitchingRef.current) return;
+    shopSwitchingRef.current = true;
     setShopSwitching(true);
     try {
       const result = await authApi.switchShop(shopId);
@@ -343,14 +359,12 @@ function AppInner() {
         tenantId: result.tenantId,
       });
       setCurrentShopIdState(result.currentShopId);
+      setTenantIdState(result.tenantId ?? null);
       window.location.reload();
     } catch {
-      const token = getAccessToken();
-      if (token) {
-        setAuthSession({ accessToken: token, currentShopId: shopId, tenantId: tenantIdState ?? 0 });
-        setCurrentShopIdState(shopId);
-      }
+        /* 切店失败保持原店铺上下文，避免写入未授权 shopId */
     } finally {
+      shopSwitchingRef.current = false;
       setShopSwitching(false);
     }
   };
@@ -398,7 +412,7 @@ function AppInner() {
           ))}
         </nav>
 
-        <div className="p-6 border-t border-slate-50 bg-slate-50/50">
+        <div className="p-6 border-t border-slate-50 bg-slate-50/50 space-y-3">
            <div className="bg-white p-4 rounded-3xl shadow-sm ring-1 ring-slate-200/50 flex flex-col gap-3">
               <div className="flex items-center justify-between">
                  <span className="text-[10px] font-black text-slate-300">当前店铺 (X-Shop-Id)</span>
@@ -422,6 +436,13 @@ function AppInner() {
                 )}
               </select>
            </div>
+            <button
+              type="button"
+              onClick={() => void onLogout()}
+              className="w-full rounded-2xl bg-slate-200 py-3 text-xs font-black text-slate-600 transition hover:bg-rose-100 hover:text-rose-700"
+            >
+              退出登录
+            </button>
         </div>
       </aside>
 
@@ -469,9 +490,11 @@ function AppInner() {
             )}
 
             {!isDashboard && ActiveComponent && (
-              <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="text-slate-400 font-bold animate-pulse">加载中...</div></div>}>
-                <ActiveComponent />
-              </Suspense>
+              <RouteErrorBoundary>
+                <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="text-slate-400 font-bold animate-pulse">加载中...</div></div>}>
+                  <ActiveComponent />
+                </Suspense>
+              </RouteErrorBoundary>
             )}
 
             {!isDashboard && !ActiveComponent && activePage && (
@@ -505,6 +528,19 @@ function LoginScreen({ onLoginSuccess }: { onLoginSuccess: () => void }) {
   const [captchaLoading, setCaptchaLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [tenantIdInput, setTenantIdInput] = useState('');
+
+  const resolveTenantId = (): number | null => {
+    const inputTenant = Number(tenantIdInput.trim())
+    if (!Number.isNaN(inputTenant) && inputTenant > 0) return inputTenant
+    const urlTenantRaw = new URLSearchParams(window.location.search).get('tenantId')
+    const urlTenant = Number(urlTenantRaw)
+    if (!Number.isNaN(urlTenant) && urlTenant > 0) return urlTenant
+    const hostFirst = window.location.hostname.split('.')[0]
+    const hostTenant = Number(hostFirst)
+    if (!Number.isNaN(hostTenant) && hostTenant > 0) return hostTenant
+    return null
+  }
 
   const normalizeCaptchaSrc = (raw: string): string => {
     const value = raw.trim();
@@ -557,6 +593,8 @@ function LoginScreen({ onLoginSuccess }: { onLoginSuccess: () => void }) {
     if (!normalizedPassword) { setError('请输入密码'); return; }
     if (!captcha.trim()) { setError('请输入验证码'); return; }
     if (!captchaKey) { setError('验证码未就绪，请刷新验证码后再试'); return; }
+    const tenantId = resolveTenantId()
+    if (tenantId == null) { setError('缺少租户信息，请输入租户ID或通过链接传入 tenantId'); return }
 
     setLoading(true);
     setError('');
@@ -581,7 +619,7 @@ function LoginScreen({ onLoginSuccess }: { onLoginSuccess: () => void }) {
         password: normalizedPassword,
         captcha: captcha.trim(),
         captchaKey,
-        tenantId: 1,
+        tenantId,
       });
       setPendingLoginContext(preAuth.preAuthToken, preAuth.shops);
       setPreAuthToken(preAuth.preAuthToken);
@@ -659,6 +697,15 @@ function LoginScreen({ onLoginSuccess }: { onLoginSuccess: () => void }) {
                   onChange={(e) => setPassword(e.target.value)}
                   autoComplete="current-password"
                   className="w-full px-4 py-3 rounded-2xl bg-slate-50 border-0 ring-1 ring-slate-200 outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-black text-slate-500 uppercase tracking-wider">租户ID</label>
+                <input
+                  value={tenantIdInput}
+                  onChange={(e) => setTenantIdInput(e.target.value)}
+                  className="w-full px-4 py-3 rounded-2xl bg-slate-50 border-0 ring-1 ring-slate-200 outline-none focus:ring-2 focus:ring-indigo-500"
+                  placeholder="可选：优先于 URL tenantId / 子域名"
                 />
               </div>
               <div className="space-y-2">

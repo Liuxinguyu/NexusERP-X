@@ -11,13 +11,10 @@ import org.springframework.stereotype.Component;
 @Component
 public class ShopScopeAspect {
 
-    // Currently ShopScope is typically intercepted in similar manner 
-    // to DataScope (or combined). This sets a basic skeleton.
+    // TODO: implement shop-level data scope filtering via DataScopeContext
 
     @Before("@annotation(shopScopeAnnotation)")
     public void doBefore(JoinPoint point, ShopScope shopScopeAnnotation) {
-        // Implementation similar to DataScope interceptor but for sys_role_shop
-        // Future extensions will leverage DataScopeContext adding a setShopIds([])
     }
 
     @After("@annotation(shopScopeAnnotation)")

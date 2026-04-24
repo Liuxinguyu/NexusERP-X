@@ -15,6 +15,11 @@ export interface AuthSession {
 }
 
 export function setAuthSession(session: AuthSession): void {
+  sessionStorage.removeItem(ACCESS_TOKEN_KEY)
+  sessionStorage.removeItem(CURRENT_SHOP_ID_KEY)
+  sessionStorage.removeItem(TENANT_ID_KEY)
+  sessionStorage.removeItem(CURRENT_ORG_ID_KEY)
+  sessionStorage.removeItem(DATA_SCOPE_KEY)
   sessionStorage.setItem(ACCESS_TOKEN_KEY, session.accessToken)
   sessionStorage.setItem(CURRENT_SHOP_ID_KEY, String(session.currentShopId))
   if (typeof session.tenantId === 'number') {
@@ -34,6 +39,7 @@ export function clearAuthSession(): void {
   sessionStorage.removeItem(TENANT_ID_KEY)
   sessionStorage.removeItem(CURRENT_ORG_ID_KEY)
   sessionStorage.removeItem(DATA_SCOPE_KEY)
+  clearPendingLoginContext()
 }
 
 export function getAccessToken(): string | null {

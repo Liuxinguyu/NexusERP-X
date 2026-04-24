@@ -7,6 +7,7 @@ import com.nexus.common.context.TenantContext;
 import com.nexus.common.core.domain.ResultCode;
 import com.nexus.common.exception.BusinessException;
 import com.nexus.erp.application.dto.ErpDtos;
+import com.nexus.erp.application.support.DateParsers;
 import com.nexus.erp.domain.model.ErpContract;
 import com.nexus.erp.domain.model.ErpContractItem;
 import com.nexus.erp.domain.model.ErpCustomer;
@@ -20,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Objects;
@@ -88,13 +90,13 @@ public class ErpContractApplicationService {
         c.setStatus(STATUS_ONGOING);
 
         if (req.getSignDate() != null && !req.getSignDate().isBlank()) {
-            c.setSignDate(LocalDate.parse(req.getSignDate()));
+            c.setSignDate(DateParsers.parseIsoDate(req.getSignDate(), "签订日期"));
         }
         if (req.getStartDate() != null && !req.getStartDate().isBlank()) {
-            c.setStartDate(LocalDate.parse(req.getStartDate()));
+            c.setStartDate(DateParsers.parseIsoDate(req.getStartDate(), "开始日期"));
         }
         if (req.getEndDate() != null && !req.getEndDate().isBlank()) {
-            c.setEndDate(LocalDate.parse(req.getEndDate()));
+            c.setEndDate(DateParsers.parseIsoDate(req.getEndDate(), "结束日期"));
         }
         contractMapper.insert(c);
         return c.getId();
@@ -111,13 +113,13 @@ public class ErpContractApplicationService {
             c.setOpportunityId(req.getOpportunityId());
         }
         if (req.getSignDate() != null && !req.getSignDate().isBlank()) {
-            c.setSignDate(LocalDate.parse(req.getSignDate()));
+            c.setSignDate(DateParsers.parseIsoDate(req.getSignDate(), "签订日期"));
         }
         if (req.getStartDate() != null && !req.getStartDate().isBlank()) {
-            c.setStartDate(LocalDate.parse(req.getStartDate()));
+            c.setStartDate(DateParsers.parseIsoDate(req.getStartDate(), "开始日期"));
         }
         if (req.getEndDate() != null && !req.getEndDate().isBlank()) {
-            c.setEndDate(LocalDate.parse(req.getEndDate()));
+            c.setEndDate(DateParsers.parseIsoDate(req.getEndDate(), "结束日期"));
         }
         if (req.getAmount() != null) {
             c.setAmount(req.getAmount());
@@ -143,7 +145,9 @@ public class ErpContractApplicationService {
         loadContract(id, tenantId);
         // 删除明细
         contractItemMapper.delete(new LambdaQueryWrapper<ErpContractItem>()
-                .eq(ErpContractItem::getContractId, id));
+                .eq(ErpContractItem::getContractId, id)
+                .eq(ErpContractItem::getTenantId, tenantId)
+                .eq(ErpContractItem::getDelFlag, 0));
         contractMapper.deleteById(id);
     }
 
@@ -166,7 +170,7 @@ public class ErpContractApplicationService {
     }
 
     private static String nextContractNo() {
-        String ts = DateTimeFormatter.ofPattern("yyyyMMddHHmmss").format(LocalDate.now());
+        String ts = DateTimeFormatter.ofPattern("yyyyMMddHHmmss").format(LocalDateTime.now());
         String uuidPart = UUID.randomUUID().toString().replace("-", "").substring(28);
         return "CT" + ts + uuidPart;
     }

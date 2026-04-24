@@ -1,9 +1,10 @@
 package com.nexus.system.infrastructure.aspect;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.nexus.common.annotation.DataScope;
 import com.nexus.common.context.DataScopeContext;
 import com.nexus.common.context.GatewayUserContext;
+import com.nexus.common.context.OrgContext;
+import com.nexus.common.security.datascope.DataScope;
 import com.nexus.system.domain.model.SysRole;
 import com.nexus.system.domain.model.SysUser;
 import com.nexus.system.domain.model.SysUserShopRole;
@@ -17,7 +18,9 @@ import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.annotation.Before;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 @Aspect
 @Component
@@ -29,14 +32,14 @@ public class DataScopeAspect {
     private final SysRoleMapper sysRoleMapper;
 
     @Before("@annotation(dataScopeAnnotation)")
-    public void doBefore(JoinPoint point, DataScope dataScopeAnnotation) {
+    public void doBefore(JoinPoint point, com.nexus.common.annotation.DataScope dataScopeAnnotation) {
         clearDataScope();
 
         Long userId = GatewayUserContext.getUserId();
         if (userId == null) {
             return;
         }
-        
+
         SysUser user = sysUserMapper.selectById(userId);
         if (user == null) {
             return;
@@ -45,41 +48,58 @@ public class DataScopeAspect {
         DataScopeContext.setUserId(userId);
         DataScopeContext.setDeptId(user.getMainOrgId());
 
-        // Find the strongest data_scope user possesses
-        List<SysUserShopRole> mappings = sysUserShopRoleMapper.selectList(
-                new LambdaQueryWrapper<SysUserShopRole>().eq(SysUserShopRole::getUserId, userId)
-        );
+        LambdaQueryWrapper<SysUserShopRole> usrQuery = new LambdaQueryWrapper<SysUserShopRole>()
+                .eq(SysUserShopRole::getUserId, userId)
+                .eq(SysUserShopRole::getDelFlag, 0);
+        Long currentShopId = OrgContext.getShopId();
+        if (currentShopId != null) {
+            usrQuery.eq(SysUserShopRole::getShopId, currentShopId);
+        }
+        List<SysUserShopRole> mappings = sysUserShopRoleMapper.selectList(usrQuery);
 
         if (mappings.isEmpty()) {
-            // Default to SELF if no role assigned
-            DataScopeContext.setDataScope(5);
+            DataScopeContext.setDataScope(DataScope.SELF.getCode());
             return;
         }
 
-        int maxScope = 5; // 5 is most restrictive (Self)
-        Long strongestRoleId = null;
-
+        List<DataScope> scopes = new ArrayList<>();
         for (SysUserShopRole m : mappings) {
             SysRole role = sysRoleMapper.selectById(m.getRoleId());
-            if (role != null && role.getDataScope() != null) {
-                if (role.getDataScope() < maxScope) {
-                    maxScope = role.getDataScope();
-                    strongestRoleId = role.getId();
+            if (role != null && role.getDataScope() != null
+                    && (role.getDelFlag() == null || role.getDelFlag() == 0)) {
+                DataScope scope = DataScope.fromCode(role.getDataScope());
+                if (scope != null) {
+                    scopes.add(scope);
                 }
             }
         }
 
-        Long finalMaxScope = (long) maxScope;
-        DataScopeContext.setDataScope(maxScope);
-        DataScopeContext.setRoleId(strongestRoleId == null ? null : (strongestRoleId)); // Changed to String temporarily to fix the error just in case it is typed as a String somewhere
+        DataScope finalScope = getMaxDataScope(scopes);
+        DataScopeContext.setDataScope(finalScope.getCode());
     }
 
     @After("@annotation(dataScopeAnnotation)")
-    public void doAfter(JoinPoint point, DataScope dataScopeAnnotation) {
+    public void doAfter(JoinPoint point, com.nexus.common.annotation.DataScope dataScopeAnnotation) {
         clearDataScope();
     }
 
     private void clearDataScope() {
         DataScopeContext.clear();
+    }
+
+    private DataScope getMaxDataScope(List<DataScope> scopes) {
+        if (scopes == null || scopes.isEmpty()) {
+            return DataScope.SELF;
+        }
+        DataScope max = DataScope.SELF;
+        for (DataScope scope : scopes) {
+            if (scope == null) {
+                continue;
+            }
+            if (scope.getCode() > max.getCode()) {
+                max = scope;
+            }
+        }
+        return max;
     }
 }

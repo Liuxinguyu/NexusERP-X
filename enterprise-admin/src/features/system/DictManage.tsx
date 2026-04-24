@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useState } from 'react'
 import { dictItemApi, dictTypeApi } from '../../api/system-crud'
 import type { DictItemRow, DictTypeRow } from '../../types/system-crud'
-import { PermGate } from '../../context/PermissionsContext'
+import { PermGate, usePermissions } from '../../context/PermissionsContext'
 import { SYSTEM_PERMS } from '../../lib/system-perms'
 import { useToast } from '../../components/Toast'
 import { useConfirm } from '../../components/ConfirmDialog'
 import Modal from '../../components/Modal'
+import { useStaleGuard } from '../../hooks/useStaleGuard'
 
 export default function DictManage() {
   const toast = useToast()
   const confirm = useConfirm()
+  const { can } = usePermissions()
   // === 左侧：字典类型 Context ===
   const [types, setTypes] = useState<DictTypeRow[]>([])
   const [typesLoading, setTypesLoading] = useState(false)
@@ -32,9 +34,13 @@ export default function DictManage() {
     remark: '',
   })
   const [typeSubmitting, setTypeSubmitting] = useState(false)
+  const [typeFormErrors, setTypeFormErrors] = useState<Record<string, string>>({})
 
   // === 右侧：字典项 Context ===
   const [items, setItems] = useState<DictItemRow[]>([])
+  const [itemTotal, setItemTotal] = useState(0)
+  const [itemCurrent, setItemCurrent] = useState(1)
+  const [itemSize, setItemSize] = useState(10)
   const [itemsLoading, setItemsLoading] = useState(false)
 
   const [itemModal, setItemModal] = useState<{ open: boolean; isEdit: boolean; id?: number }>({
@@ -57,46 +63,63 @@ export default function DictManage() {
     remark: '',
   })
   const [itemSubmitting, setItemSubmitting] = useState(false)
+  const [itemFormErrors, setItemFormErrors] = useState<Record<string, string>>({})
+  const typeGuard = useStaleGuard()
+  const itemGuard = useStaleGuard()
 
   // ================= 字典类型 CRUD =================
 
   const loadTypes = useCallback(async () => {
+    const id = typeGuard.nextId()
     setTypesLoading(true)
     try {
       const data = await dictTypeApi.list()
+      if (!typeGuard.isCurrent(id)) return
       setTypes(Array.isArray(data) ? data : [])
     } catch (e) {
+      if (!typeGuard.isCurrent(id)) return
       toast.error(e instanceof Error ? e.message : '加载字典类型失败')
     } finally {
+      if (!typeGuard.isCurrent(id)) return
       setTypesLoading(false)
     }
-  }, [])
+  }, [typeGuard, toast])
 
   useEffect(() => {
     void loadTypes()
   }, [loadTypes])
 
-  const loadItems = useCallback(async (typeDictType: string) => {
+  const loadItems = useCallback(async (typeDictType: string, current = itemCurrent, size = itemSize) => {
+    const id = itemGuard.nextId()
     setItemsLoading(true)
     try {
-      const data = await dictItemApi.listByType(typeDictType)
-      setItems(Array.isArray(data) ? data : [])
+      const data = await dictItemApi.page({ current, size, dictType: typeDictType })
+      const records = (data.records ?? data.list ?? []) as DictItemRow[]
+      if (!itemGuard.isCurrent(id)) return
+      setItems(Array.isArray(records) ? records : [])
+      setItemTotal(Number(data.total ?? 0))
     } catch (e) {
+      if (!itemGuard.isCurrent(id)) return
       setItems([])
+      setItemTotal(0)
+      toast.error(e instanceof Error ? e.message : '加载字典项失败')
     } finally {
+      if (!itemGuard.isCurrent(id)) return
       setItemsLoading(false)
     }
-  }, [])
+  }, [itemCurrent, itemSize, toast, itemGuard])
 
   useEffect(() => {
     if (selectedType) {
-      void loadItems(selectedType)
+      void loadItems(selectedType, itemCurrent, itemSize)
     } else {
       setItems([])
+      setItemTotal(0)
     }
-  }, [selectedType, loadItems])
+  }, [selectedType, loadItems, itemCurrent, itemSize])
 
   const openAddType = () => {
+    setTypeFormErrors({})
     setTypeForm({ dictName: '', dictType: '', status: 1, remark: '' })
     setTypeModal({ open: true, isEdit: false })
   }
@@ -111,6 +134,7 @@ export default function DictManage() {
         status: Number(detail.status ?? 1),
         remark: detail.remark ?? '',
       })
+      setTypeFormErrors({})
       setTypeModal({ open: true, isEdit: true, id: node.id })
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '获取详情失败')
@@ -118,7 +142,12 @@ export default function DictManage() {
   }
 
   const submitTypeForm = async () => {
-    if (!typeForm.dictName.trim() || !typeForm.dictType.trim()) { toast.error('字典名称和类型必填'); return }
+    const errors: Record<string, string> = {}
+    if (!typeForm.dictName.trim()) errors.dictName = '字典名称必填'
+    if (!typeForm.dictType.trim()) errors.dictType = '字典类型必填'
+    setTypeFormErrors(errors)
+    if (Object.keys(errors).length > 0) return
+    if (typeSubmitting) return
     setTypeSubmitting(true)
     try {
       if (typeModal.isEdit && typeModal.id != null) {
@@ -126,6 +155,7 @@ export default function DictManage() {
       } else {
         await dictTypeApi.create(typeForm)
       }
+      toast.success(typeModal.isEdit ? '字典类型已保存' : '字典类型已新增')
       setTypeModal({ open: false, isEdit: false })
       await loadTypes()
     } catch (e) {
@@ -141,6 +171,7 @@ export default function DictManage() {
     if (!ok) return
     try {
       await dictTypeApi.remove(node.id)
+      toast.success('字典类型已删除')
       if (selectedType === node.dictType) setSelectedType(undefined)
       await loadTypes()
     } catch (e) {
@@ -152,6 +183,7 @@ export default function DictManage() {
 
   const openAddItem = () => {
     if (!selectedType) { toast.error('请先在左侧选择一个字典类型'); return }
+    setItemFormErrors({})
     setItemForm({ dictType: selectedType, dictLabel: '', dictValue: '', sort: 0, status: 1, remark: '' })
     setItemModal({ open: true, isEdit: false })
   }
@@ -168,6 +200,7 @@ export default function DictManage() {
         status: Number(detail.status ?? 1),
         remark: detail.remark ?? '',
       })
+      setItemFormErrors({})
       setItemModal({ open: true, isEdit: true, id: row.id })
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '获取字典项详情失败')
@@ -175,9 +208,13 @@ export default function DictManage() {
   }
 
   const submitItemForm = async () => {
-    if (!itemForm.dictLabel.trim() || !itemForm.dictValue.trim() || !itemForm.dictType.trim()) {
-      toast.error('字典类型、标签、键值均为必填'); return
-    }
+    const errors: Record<string, string> = {}
+    if (!itemForm.dictType.trim()) errors.dictType = '字典类型必填'
+    if (!itemForm.dictLabel.trim()) errors.dictLabel = '字典标签必填'
+    if (!itemForm.dictValue.trim()) errors.dictValue = '字典键值必填'
+    setItemFormErrors(errors)
+    if (Object.keys(errors).length > 0) return
+    if (itemSubmitting) return
     setItemSubmitting(true)
     try {
       if (itemModal.isEdit && itemModal.id != null) {
@@ -185,8 +222,9 @@ export default function DictManage() {
       } else {
         await dictItemApi.create(itemForm)
       }
+      toast.success(itemModal.isEdit ? '字典项已保存' : '字典项已新增')
       setItemModal({ open: false, isEdit: false })
-      if (selectedType) await loadItems(selectedType)
+      if (selectedType) await loadItems(selectedType, itemCurrent, itemSize)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '保存字典项失败')
     } finally {
@@ -200,10 +238,19 @@ export default function DictManage() {
     if (!ok) return
     try {
       await dictItemApi.remove(row.id)
-      if (selectedType) await loadItems(selectedType)
+      toast.success('字典项已删除')
+      if (selectedType) await loadItems(selectedType, itemCurrent, itemSize)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '删除失败')
     }
+  }
+
+  if (!can(SYSTEM_PERMS.dict.query)) {
+    return (
+      <div className="bg-white p-10 rounded-[2.5rem] shadow-sm ring-1 ring-slate-100 text-center text-slate-500 font-bold">
+        无权限访问：字典管理
+      </div>
+    )
   }
 
   return (
@@ -269,7 +316,7 @@ export default function DictManage() {
                   <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 bg-white/50 backdrop-blur-sm rounded-lg px-1 shrink-0">
                     <PermGate perms={[SYSTEM_PERMS.dict.edit]}>
                       <button
-                        onClick={(e) => { e.stopPropagation(); openEditType(t); }}
+                        onClick={(e) => { e.stopPropagation(); void openEditType(t) }}
                         className="px-1.5 py-1 text-amber-600 hover:bg-amber-100 rounded-md transition"
                         title="编辑类型"
                       >
@@ -278,7 +325,7 @@ export default function DictManage() {
                     </PermGate>
                     <PermGate perms={[SYSTEM_PERMS.dict.remove]}>
                       <button
-                        onClick={(e) => { e.stopPropagation(); removeType(t); }}
+                        onClick={(e) => { e.stopPropagation(); void removeType(t) }}
                         className="px-1.5 py-1 text-rose-600 hover:bg-rose-100 rounded-md transition"
                         title="删除类型"
                       >
@@ -341,7 +388,7 @@ export default function DictManage() {
               ) : !selectedType ? (
                 <tr><td colSpan={6} className="px-8 py-20 text-center text-slate-300 font-black text-lg italic">👈 请先在左侧选择字典分类</td></tr>
               ) : items.length === 0 ? (
-                <tr><td colSpan={6} className="px-8 py-10 text-center text-slate-400 italic">该字典类型下暂无键值配偶</td></tr>
+                <tr><td colSpan={6} className="px-8 py-10 text-center text-slate-400 italic">该字典类型下暂无键值配置</td></tr>
               ) : (
                 items.map(item => (
                   <tr key={item.id} className="hover:bg-slate-50/50 transition-colors group">
@@ -356,10 +403,10 @@ export default function DictManage() {
                     </td>
                     <td className="px-8 py-5 text-right space-x-3 opacity-0 group-hover:opacity-100 transition-opacity">
                       <PermGate perms={[SYSTEM_PERMS.dict.edit]}>
-                        <button onClick={() => openEditItem(item)} className="text-amber-600 hover:text-amber-700">编辑</button>
+                        <button onClick={() => void openEditItem(item)} className="text-amber-600 hover:text-amber-700">编辑</button>
                       </PermGate>
                       <PermGate perms={[SYSTEM_PERMS.dict.remove]}>
-                        <button onClick={() => removeItem(item)} className="text-rose-600 hover:text-rose-700">删除</button>
+                        <button onClick={() => void removeItem(item)} className="text-rose-600 hover:text-rose-700">删除</button>
                       </PermGate>
                     </td>
                   </tr>
@@ -367,6 +414,40 @@ export default function DictManage() {
               )}
             </tbody>
           </table>
+        </div>
+        <div className="px-8 py-4 bg-slate-50/50 border-t border-slate-50 flex justify-between items-center text-xs font-bold text-slate-500">
+          <span>共 {itemTotal} 条</span>
+          <div className="flex items-center gap-2">
+            <select
+              value={itemSize}
+              onChange={(e) => {
+                setItemSize(Number(e.target.value))
+                setItemCurrent(1)
+              }}
+              className="px-2 py-1 bg-white rounded-lg ring-1 ring-slate-200"
+            >
+              <option value={10}>10条/页</option>
+              <option value={20}>20条/页</option>
+              <option value={50}>50条/页</option>
+            </select>
+            <span>第 {itemCurrent} / {Math.max(1, Math.ceil(itemTotal / itemSize))} 页</span>
+            <button
+              type="button"
+              disabled={itemCurrent <= 1}
+              onClick={() => setItemCurrent((v) => Math.max(1, v - 1))}
+              className="px-3 py-1 rounded-lg bg-slate-100 font-bold disabled:opacity-40"
+            >
+              上一页
+            </button>
+            <button
+              type="button"
+              disabled={itemCurrent >= Math.max(1, Math.ceil(itemTotal / itemSize))}
+              onClick={() => setItemCurrent((v) => v + 1)}
+              className="px-3 py-1 rounded-lg bg-slate-100 font-bold disabled:opacity-40"
+            >
+              下一页
+            </button>
+          </div>
         </div>
       </div>
 
@@ -378,25 +459,31 @@ export default function DictManage() {
             <input
               autoFocus
               value={typeForm.dictName}
-              onChange={(e) => setTypeForm({ ...typeForm, dictName: e.target.value })}
+              onChange={(e) => setTypeForm((prev) => ({ ...prev, dictName: e.target.value }))}
               placeholder="例如：用户性别"
-              className="w-full px-4 py-2.5 rounded-xl bg-slate-50 ring-1 ring-slate-200 text-sm font-bold focus:ring-indigo-500 outline-none transition"
+              className={`w-full px-4 py-2.5 rounded-xl bg-slate-50 ring-1 ${
+                typeFormErrors.dictName ? 'ring-rose-500' : 'ring-slate-200'
+              } text-sm font-bold focus:ring-indigo-500 outline-none transition`}
             />
+            {typeFormErrors.dictName ? <p className="text-[10px] text-rose-600 font-bold">{typeFormErrors.dictName}</p> : null}
           </div>
           <div className="space-y-1.5">
             <label className="text-xs font-black text-slate-500 block">字典类型编码 <span className="text-rose-500">*</span></label>
             <input
               value={typeForm.dictType}
-              onChange={(e) => setTypeForm({ ...typeForm, dictType: e.target.value })}
+              onChange={(e) => setTypeForm((prev) => ({ ...prev, dictType: e.target.value }))}
               placeholder="例如：sys_user_sex"
-              className="w-full px-4 py-2.5 rounded-xl bg-slate-50 ring-1 ring-slate-200 text-sm font-bold focus:ring-indigo-500 outline-none transition"
+              className={`w-full px-4 py-2.5 rounded-xl bg-slate-50 ring-1 ${
+                typeFormErrors.dictType ? 'ring-rose-500' : 'ring-slate-200'
+              } text-sm font-bold focus:ring-indigo-500 outline-none transition`}
             />
+            {typeFormErrors.dictType ? <p className="text-[10px] text-rose-600 font-bold">{typeFormErrors.dictType}</p> : null}
           </div>
           <div className="space-y-1.5">
             <label className="text-xs font-black text-slate-500 block">状态</label>
             <select
               value={typeForm.status}
-              onChange={(e) => setTypeForm({ ...typeForm, status: Number(e.target.value) })}
+              onChange={(e) => setTypeForm((prev) => ({ ...prev, status: Number(e.target.value) }))}
               className="w-full px-4 py-2.5 rounded-xl bg-slate-50 ring-1 ring-slate-200 text-sm font-bold focus:ring-indigo-500 outline-none transition"
             >
               <option value={1}>正常</option>
@@ -425,19 +512,25 @@ export default function DictManage() {
               <input
                 autoFocus
                 value={itemForm.dictLabel}
-                onChange={(e) => setItemForm({ ...itemForm, dictLabel: e.target.value })}
+                onChange={(e) => setItemForm((prev) => ({ ...prev, dictLabel: e.target.value }))}
                 placeholder="例如：男"
-                className="w-full px-4 py-2.5 rounded-xl bg-slate-50 ring-1 ring-slate-200 text-sm font-bold focus:ring-indigo-500 outline-none transition"
+                className={`w-full px-4 py-2.5 rounded-xl bg-slate-50 ring-1 ${
+                  itemFormErrors.dictLabel ? 'ring-rose-500' : 'ring-slate-200'
+                } text-sm font-bold focus:ring-indigo-500 outline-none transition`}
               />
+              {itemFormErrors.dictLabel ? <p className="text-[10px] text-rose-600 font-bold">{itemFormErrors.dictLabel}</p> : null}
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-black text-slate-500 block">键值 (Value) <span className="text-rose-500">*</span></label>
               <input
                 value={itemForm.dictValue}
-                onChange={(e) => setItemForm({ ...itemForm, dictValue: e.target.value })}
+                onChange={(e) => setItemForm((prev) => ({ ...prev, dictValue: e.target.value }))}
                 placeholder="例如：1"
-                className="w-full px-4 py-2.5 rounded-xl bg-slate-50 ring-1 ring-slate-200 text-sm font-bold focus:ring-indigo-500 outline-none transition"
+                className={`w-full px-4 py-2.5 rounded-xl bg-slate-50 ring-1 ${
+                  itemFormErrors.dictValue ? 'ring-rose-500' : 'ring-slate-200'
+                } text-sm font-bold focus:ring-indigo-500 outline-none transition`}
               />
+              {itemFormErrors.dictValue ? <p className="text-[10px] text-rose-600 font-bold">{itemFormErrors.dictValue}</p> : null}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
@@ -446,7 +539,7 @@ export default function DictManage() {
               <input
                 type="number"
                 value={itemForm.sort}
-                onChange={(e) => setItemForm({ ...itemForm, sort: Number(e.target.value) })}
+                onChange={(e) => setItemForm((prev) => ({ ...prev, sort: Number(e.target.value) }))}
                 className="w-full px-4 py-2.5 rounded-xl bg-slate-50 ring-1 ring-slate-200 text-sm font-bold focus:ring-indigo-500 outline-none transition"
               />
             </div>
@@ -454,7 +547,7 @@ export default function DictManage() {
               <label className="text-xs font-black text-slate-500 block">状态</label>
               <select
                 value={itemForm.status}
-                onChange={(e) => setItemForm({ ...itemForm, status: Number(e.target.value) })}
+                onChange={(e) => setItemForm((prev) => ({ ...prev, status: Number(e.target.value) }))}
                 className="w-full px-4 py-2.5 rounded-xl bg-slate-50 ring-1 ring-slate-200 text-sm font-bold focus:ring-indigo-500 outline-none transition"
               >
                 <option value={1}>正常</option>

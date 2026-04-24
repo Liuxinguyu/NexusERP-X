@@ -6,6 +6,8 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.nexus.common.context.TenantContext;
 import com.nexus.common.core.domain.ResultCode;
 import com.nexus.common.exception.BusinessException;
+import com.nexus.common.security.NexusPrincipal;
+import com.nexus.common.security.NexusPrincipal;
 import com.nexus.common.security.SecurityUtils;
 import com.nexus.oa.domain.model.OaTask;
 import com.nexus.oa.domain.model.OaTaskComment;
@@ -57,7 +59,8 @@ public class OaTaskApplicationService {
     public Long create(TaskCreateReq req) {
         Long tenantId = requireTenantId();
         Long creatorId = requireUserId();
-        String creatorName = SecurityUtils.currentPrincipal().getUsername();
+        NexusPrincipal principal = SecurityUtils.currentPrincipal();
+        String creatorName = principal != null ? principal.getUsername() : "system";
 
         OaTask t = new OaTask();
         t.setTenantId(tenantId);

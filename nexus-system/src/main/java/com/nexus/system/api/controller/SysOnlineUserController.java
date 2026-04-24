@@ -20,18 +20,20 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/system/online-users")
 @RequiredArgsConstructor
-@PreAuthorize("hasRole('ADMIN')")
 public class SysOnlineUserController {
 
     private final OnlineUserRedisService onlineUserRedisService;
 
+    @PreAuthorize("@ss.hasPermi('monitor:online:list')")
     @GetMapping
     public Result<Map<String, Object>> page(
             @RequestParam(defaultValue = "1") long pageNum,
-            @RequestParam(defaultValue = "10") long pageSize) throws Exception {
+            @RequestParam(defaultValue = "10") long pageSize,
+            @RequestParam(required = false) String username,
+            @RequestParam(required = false) String ip) throws Exception {
         Long tid = TenantContext.getTenantId();
-        List<OnlineUserRedisService.OnlinePayload> rows = onlineUserRedisService.listByTenant(pageNum, pageSize, tid);
-        long total = onlineUserRedisService.countByTenant(tid);
+        List<OnlineUserRedisService.OnlinePayload> rows = onlineUserRedisService.listByTenant(pageNum, pageSize, tid, username, ip);
+        long total = onlineUserRedisService.countByTenant(tid, username, ip);
         Map<String, Object> m = new HashMap<>();
         m.put("records", rows);
         m.put("total", total);
@@ -41,6 +43,7 @@ public class SysOnlineUserController {
     }
 
     @OpLog(module = "在线用户", type = "强退")
+    @PreAuthorize("@ss.hasPermi('monitor:online:forceLogout')")
     @DeleteMapping("/{userId}")
     public Result<Void> kick(@PathVariable Long userId) {
         onlineUserRedisService.forceLogoutUser(userId);

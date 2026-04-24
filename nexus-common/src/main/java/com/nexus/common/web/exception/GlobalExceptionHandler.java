@@ -6,6 +6,7 @@ import com.nexus.common.exception.BusinessException;
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.validation.BindException;
 import org.springframework.validation.FieldError;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -22,10 +23,23 @@ import java.util.stream.Collectors;
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(BusinessException.class)
-    @ResponseStatus(HttpStatus.OK)
-    public Result<Void> handleBusiness(BusinessException ex) {
+    public ResponseEntity<Result<Void>> handleBusiness(BusinessException ex) {
         log.warn("业务异常: code={}, message={}", ex.getCode(), ex.getMessage());
-        return Result.build(ex.getCode(), ex.getMessage(), null);
+        HttpStatus httpStatus = mapToHttpStatus(ex.getCode());
+        return ResponseEntity.status(httpStatus)
+                .body(Result.build(ex.getCode(), ex.getMessage(), null));
+    }
+
+    private static HttpStatus mapToHttpStatus(int code) {
+        return switch (code) {
+            case 400 -> HttpStatus.BAD_REQUEST;
+            case 401 -> HttpStatus.UNAUTHORIZED;
+            case 403 -> HttpStatus.FORBIDDEN;
+            case 404 -> HttpStatus.NOT_FOUND;
+            case 409 -> HttpStatus.CONFLICT;
+            case 500 -> HttpStatus.INTERNAL_SERVER_ERROR;
+            default -> HttpStatus.OK;
+        };
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

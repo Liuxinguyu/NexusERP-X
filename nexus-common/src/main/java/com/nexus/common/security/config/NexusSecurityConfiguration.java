@@ -42,8 +42,8 @@ public class NexusSecurityConfiguration {
             auth.anyRequest().authenticated();
         });
 
-        http.addFilterBefore(tenantContextWebFilter, UsernamePasswordAuthenticationFilter.class);
         http.addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+        http.addFilterAfter(tenantContextWebFilter, JwtAuthenticationFilter.class);
         return http.build();
     }
 

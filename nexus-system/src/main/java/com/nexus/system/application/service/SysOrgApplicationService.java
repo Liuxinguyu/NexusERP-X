@@ -183,7 +183,9 @@ public class SysOrgApplicationService {
             }
             w.in(SysUser::getMainOrgId, orgIds);
         }
-        return userMapper.selectList(w);
+        List<SysUser> users = userMapper.selectList(w);
+        users.forEach(u -> u.setPasswordHash(null));
+        return users;
     }
 
     /**
@@ -300,10 +302,13 @@ public class SysOrgApplicationService {
             throw new BusinessException(ResultCode.NOT_FOUND, "组织不存在");
         }
         Long parentId = req.getParentId() == null ? 0L : req.getParentId();
+        if (req.getParentId() != null && req.getParentId() != 0L && req.getId().equals(req.getParentId())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "父节点不能是自己");
+        }
         validateParentExists(tenantId, parentId);
         assertOrgCodeUnique(tenantId, req.getOrgCode(), req.getId());
         if (!Objects.equals(parentId, Optional.ofNullable(exist.getParentId()).orElse(0L))) {
-            assertNoCycle(tenantId, req.getId(), parentId);
+            checkParentIdNotInChildren(tenantId, req.getId(), parentId);
         }
 
         exist.setParentId(parentId);
@@ -427,13 +432,14 @@ public class SysOrgApplicationService {
         }
     }
 
-    private void assertNoCycle(Long tenantId, Long orgId, Long newParentId) {
-        if (Objects.equals(orgId, newParentId)) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "不能将父组织设为自己");
+    private void checkParentIdNotInChildren(Long tenantId, Long currentId, Long newParentId) {
+        if (newParentId == null || newParentId == 0L) {
+            return;
         }
-        Set<Long> descendants = collectDescendantOrgIds(tenantId, orgId);
+        Set<Long> descendants = collectDescendantOrgIds(tenantId, currentId);
+        descendants.remove(currentId);
         if (descendants.contains(newParentId)) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "不能将父组织设为自己的子组织");
+            throw new BusinessException(ResultCode.BAD_REQUEST, "父节点不能设置为当前节点的子孙节点");
         }
     }
 

@@ -18,7 +18,6 @@ import {
   hasAnyRole as _hasAnyRole,
   hasPermi,
   hasRole as _hasRole,
-  shouldAllowWhenNoPermsLoaded,
 } from '../lib/permissions'
 
 export type MenuNode = {
@@ -91,10 +90,7 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo((): PermissionsContextValue => {
     const effective = (fn: (set: Set<string>) => boolean) => {
-      if (!ready) return true
-      if (permissions.size === 0 && shouldAllowWhenNoPermsLoaded()) {
-        return true
-      }
+      if (!ready) return false
       return fn(permissions)
     }
     return {
@@ -108,13 +104,11 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
       canAny: (perms) => effective((set) => hasAnyPerm(set, perms)),
       canAll: (perms) => effective((set) => hasAllPerm(set, perms)),
       hasRole: (role) => {
-        if (!ready) return true
-        if (roles.length === 0 && shouldAllowWhenNoPermsLoaded()) return true
+        if (!ready) return false
         return _hasRole(roles, role)
       },
       hasAnyRole: (targets) => {
-        if (!ready) return true
-        if (roles.length === 0 && shouldAllowWhenNoPermsLoaded()) return true
+        if (!ready) return false
         return _hasAnyRole(roles, targets)
       },
     }

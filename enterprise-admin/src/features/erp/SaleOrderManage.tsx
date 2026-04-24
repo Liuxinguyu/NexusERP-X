@@ -3,6 +3,9 @@ import { saleOrderApi, productApi, customerApi } from '../../api/erp-crud'
 import { pickPageRecords } from '../../lib/http-helpers'
 import { useToast } from '../../components/Toast'
 import { useConfirm } from '../../components/ConfirmDialog'
+import { PermGate, usePermissions } from '../../context/PermissionsContext'
+import { ERP_PERMS } from '../../lib/business-perms'
+import { useStaleGuard } from '../../hooks/useStaleGuard'
 import type { SaleOrderRow, ProductRow, CustomerRow } from '../../types/erp-crud'
 
 const STATUS_TABS = ['全部单据', '草稿', '已提交', '已出库', '已结清'] as const
@@ -13,6 +16,7 @@ const STATUS_MAP: Record<string, string | undefined> = {
 export default function SaleOrderManage() {
   const toast = useToast()
   const confirm = useConfirm()
+  const { can } = usePermissions()
   const [list, setList] = useState<SaleOrderRow[]>([])
   const [total, setTotal] = useState(0)
   const [current, setCurrent] = useState(1)
@@ -20,20 +24,27 @@ export default function SaleOrderManage() {
   const [activeTab, setActiveTab] = useState<string>('全部单据')
   const [loading, setLoading] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const guard = useStaleGuard()
 
   const loadData = useCallback(async () => {
+    const id = guard.nextId()
     setLoading(true)
     try {
       const res = await saleOrderApi.page({ current, size, status: STATUS_MAP[activeTab] })
+      if (!guard.isCurrent(id)) return
       setList(pickPageRecords(res))
       setTotal(res.total ?? 0)
     } catch (e) {
+      if (!guard.isCurrent(id)) return
       toast.error(e instanceof Error ? e.message : '加载销售订单失败')
       setList([])
       setTotal(0)
     }
-    finally { setLoading(false) }
-  }, [current, activeTab])
+    finally {
+      if (!guard.isCurrent(id)) return
+      setLoading(false)
+    }
+  }, [current, activeTab, guard, toast])
 
   useEffect(() => { void loadData() }, [loadData])
 
@@ -69,6 +80,10 @@ export default function SaleOrderManage() {
     return <span className={`px-2 py-1 rounded-lg text-[10px] font-black ${cls}`}>{label}</span>
   }
 
+  if (!can(ERP_PERMS.saleOrder.list)) {
+    return <div className="p-8 text-center text-slate-400 font-bold">暂无权限访问</div>
+  }
+
   return (
     <div className="space-y-6 animate-in zoom-in-95 duration-500">
       <div className="flex justify-between items-center">
@@ -79,7 +94,9 @@ export default function SaleOrderManage() {
             >{t}</button>
           ))}
         </div>
-        <button onClick={() => setDrawerOpen(true)} className="px-8 py-3 bg-indigo-600 text-white rounded-2xl text-sm font-black shadow-xl shadow-indigo-200 hover:bg-indigo-500 transition-all">+ 新建销售单</button>
+        <PermGate perms={[ERP_PERMS.saleOrder.add]}>
+          <button onClick={() => setDrawerOpen(true)} className="px-8 py-3 bg-indigo-600 text-white rounded-2xl text-sm font-black shadow-xl shadow-indigo-200 hover:bg-indigo-500 transition-all">+ 新建销售单</button>
+        </PermGate>
       </div>
 
       <div className="bg-white rounded-[2.5rem] shadow-sm ring-1 ring-slate-100 overflow-hidden">
@@ -108,18 +125,28 @@ export default function SaleOrderManage() {
                   <div className="flex gap-3 justify-end">
                     {String(o.status) === '0' && (
                       <>
-                        <button onClick={() => handleAction(o.id!, 'submit')} className="text-indigo-600 text-xs font-black hover:underline">提交</button>
-                        <button onClick={() => handleDelete(o.id!)} className="text-rose-500 text-xs font-black hover:underline">删除</button>
+                        <PermGate perms={[ERP_PERMS.saleOrder.submit]}>
+                          <button onClick={() => void handleAction(o.id!, 'submit')} className="text-indigo-600 text-xs font-black hover:underline">提交</button>
+                        </PermGate>
+                        <PermGate perms={[ERP_PERMS.saleOrder.remove]}>
+                          <button onClick={() => void handleDelete(o.id!)} className="text-rose-500 text-xs font-black hover:underline">删除</button>
+                        </PermGate>
                       </>
                     )}
                     {String(o.status) === '1' && (
                       <>
-                        <button onClick={() => handleAction(o.id!, 'approve')} className="text-indigo-600 text-xs font-black hover:underline">审批</button>
-                        <button onClick={() => handleAction(o.id!, 'reject')} className="text-rose-500 text-xs font-black hover:underline">驳回</button>
+                        <PermGate perms={[ERP_PERMS.saleOrder.approve]}>
+                          <button onClick={() => void handleAction(o.id!, 'approve')} className="text-indigo-600 text-xs font-black hover:underline">审批</button>
+                        </PermGate>
+                        <PermGate perms={[ERP_PERMS.saleOrder.reject]}>
+                          <button onClick={() => void handleAction(o.id!, 'reject')} className="text-rose-500 text-xs font-black hover:underline">驳回</button>
+                        </PermGate>
                       </>
                     )}
                     {String(o.status) === '2' && (
-                      <button onClick={() => handleAction(o.id!, 'outbound')} className="text-emerald-600 text-xs font-black hover:underline">确认出库</button>
+                      <PermGate perms={[ERP_PERMS.saleOrder.outbound]}>
+                        <button onClick={() => void handleAction(o.id!, 'outbound')} className="text-emerald-600 text-xs font-black hover:underline">确认出库</button>
+                      </PermGate>
                     )}
                   </div>
                 </td>
@@ -144,7 +171,7 @@ export default function SaleOrderManage() {
 
 function NewOrderDrawer({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
   const toast = useToast()
-  const [loading, setLoading] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
   const [customers, setCustomers] = useState<CustomerRow[]>([])
   const [products, setProducts] = useState<ProductRow[]>([])
   const [customerId, setCustomerId] = useState<number>(0)
@@ -152,9 +179,13 @@ function NewOrderDrawer({ onClose, onSuccess }: { onClose: () => void; onSuccess
   const [productSearch, setProductSearch] = useState('')
 
   useEffect(() => {
-    void customerApi.page({ current: 1, size: 100 }).then(r => setCustomers(pickPageRecords(r))).catch(() => {})
-    void productApi.page({ current: 1, size: 100 }).then(r => setProducts(pickPageRecords(r))).catch(() => {})
-  }, [])
+    void customerApi.page({ current: 1, size: 100 }).then(r => setCustomers(pickPageRecords(r))).catch(() => {
+      toast.error('加载客户列表失败')
+    })
+    void productApi.page({ current: 1, size: 100 }).then(r => setProducts(pickPageRecords(r))).catch(() => {
+      toast.error('加载商品列表失败')
+    })
+  }, [toast])
 
   const filteredProducts = useMemo(() =>
     products.filter(p => !cart.some(c => c.product.id === p.id) &&
@@ -182,7 +213,8 @@ function NewOrderDrawer({ onClose, onSuccess }: { onClose: () => void; onSuccess
   const handleSubmit = async () => {
     if (!customerId) { toast.error('请选择客户'); return }
     if (cart.length === 0) { toast.error('请添加产品'); return }
-    setLoading(true)
+    if (submitting) return
+    setSubmitting(true)
     try {
       await saleOrderApi.submit({
         customerId,
@@ -190,7 +222,7 @@ function NewOrderDrawer({ onClose, onSuccess }: { onClose: () => void; onSuccess
       })
       onSuccess()
     } catch (e) { toast.error(e instanceof Error ? e.message : '提交失败') }
-    finally { setLoading(false) }
+    finally { setSubmitting(false) }
   }
 
   return (
@@ -259,10 +291,12 @@ function NewOrderDrawer({ onClose, onSuccess }: { onClose: () => void; onSuccess
 
         <div className="p-8 bg-slate-50/50 border-t border-slate-100 flex gap-4">
           <button onClick={onClose} className="flex-1 py-4 bg-white rounded-2xl font-black text-xs text-slate-400 hover:text-slate-900 transition-all uppercase">取消</button>
-          <button onClick={handleSubmit} disabled={loading || cart.length === 0}
-            className="flex-[2] py-4 bg-indigo-600 text-white rounded-2xl font-black text-xs shadow-2xl shadow-indigo-100 hover:bg-indigo-500 transition-all uppercase flex items-center justify-center gap-2">
-            {loading ? <span className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : '提交销售单'}
-          </button>
+          <PermGate perms={[ERP_PERMS.saleOrder.add]}>
+            <button onClick={() => void handleSubmit()} disabled={submitting || cart.length === 0}
+              className="flex-[2] py-4 bg-indigo-600 text-white rounded-2xl font-black text-xs shadow-2xl shadow-indigo-100 hover:bg-indigo-500 transition-all uppercase flex items-center justify-center gap-2">
+              {submitting ? <span className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : '提交销售单'}
+            </button>
+          </PermGate>
         </div>
       </div>
     </div>

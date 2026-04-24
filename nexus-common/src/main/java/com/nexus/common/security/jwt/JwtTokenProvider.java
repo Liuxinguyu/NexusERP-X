@@ -16,20 +16,19 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Component
 public class JwtTokenProvider {
 
-    public static final long LOGIN_TOKEN_EXPIRE_SECONDS = 604800L;
-
     public static final String CLAIM_USER_ID = "uid";
     public static final String CLAIM_TENANT_ID = "tid";
-    private static final String CLAIM_SHOP_ID = "sid";
+    public static final String CLAIM_SHOP_ID = "sid";
     public static final String CLAIM_ORG_ID = "oid";
     public static final String CLAIM_DATA_SCOPE = "ds";
-    private static final String CLAIM_ACCESSIBLE_SHOP_IDS = "asids";
-    private static final String CLAIM_ACCESSIBLE_ORG_IDS = "aoids";
+    public static final String CLAIM_ACCESSIBLE_SHOP_IDS = "asids";
+    public static final String CLAIM_ACCESSIBLE_ORG_IDS = "aoids";
     private static final String CLAIM_AUTHORITIES = "authorities";
     /** 三端标识：web / miniapp / app */
     public static final String CLAIM_CLIENT_TYPE = "clientType";
@@ -43,20 +42,9 @@ public class JwtTokenProvider {
     /**
      * 登录签发：7 天有效，Claims 含 userId、tenantId、username(clientType 在 claim 中)。
      */
+    @Deprecated
     public String generateLoginToken(Long userId, Long tenantId, String username, String clientType) {
-        NexusSecurityProperties.Jwt jwt = securityProperties.getJwt();
-        Date now = new Date();
-        Date exp = new Date(now.getTime() + LOGIN_TOKEN_EXPIRE_SECONDS * 1000L);
-        String ct = clientType != null && !clientType.isBlank() ? clientType.trim() : "web";
-        return Jwts.builder()
-                .subject(username)
-                .claim(CLAIM_USER_ID, userId)
-                .claim(CLAIM_TENANT_ID, tenantId)
-                .claim(CLAIM_CLIENT_TYPE, ct)
-                .issuedAt(now)
-                .expiration(exp)
-                .signWith(signingKey(jwt.getSecret()), Jwts.SIG.HS256)
-                .compact();
+        throw new UnsupportedOperationException("已废弃，请使用 createAccessToken(NexusPrincipal)");
     }
 
     /**
@@ -86,6 +74,7 @@ public class JwtTokenProvider {
 
         return Jwts.builder()
                 .subject(principal.getUsername())
+                .id(UUID.randomUUID().toString())
                 .claim(CLAIM_USER_ID, principal.getUserId())
                 .claim(CLAIM_TENANT_ID, principal.getTenantId())
                 .claim(CLAIM_SHOP_ID, principal.getShopId())
@@ -102,8 +91,16 @@ public class JwtTokenProvider {
 
     public NexusPrincipal parseToken(String token) {
         Claims claims = parseTokenClaims(token);
+        return parseToken(claims);
+    }
+
+    public NexusPrincipal parseToken(Claims claims) {
+        if (claims == null) {
+            throw new JwtAuthenticationException("令牌内容为空");
+        }
 
         String username = claims.getSubject();
+        String jti = claims.getId();
         Long userId = claims.get(CLAIM_USER_ID, Long.class);
         Long tenantId = claims.get(CLAIM_TENANT_ID, Long.class);
         Long shopId = claims.get(CLAIM_SHOP_ID, Long.class);
@@ -127,7 +124,7 @@ public class JwtTokenProvider {
         List<Number> rawOrgIds = claims.get(CLAIM_ACCESSIBLE_ORG_IDS, List.class);
         List<Long> accessibleOrgIds = toLongList(rawOrgIds);
 
-        return new NexusPrincipal(userId, username, tenantId, shopId, orgId, dataScope,
+        return new NexusPrincipal(userId, username, tenantId, jti, shopId, orgId, dataScope,
                 accessibleShopIds, accessibleOrgIds, authorities);
     }
 

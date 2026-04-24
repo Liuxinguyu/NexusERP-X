@@ -9,7 +9,9 @@ import org.springframework.security.web.server.SecurityWebFilterChain;
 import org.springframework.security.web.server.context.NoOpServerSecurityContextRepository;
 
 /**
- * 网关 WebFlux 安全：关闭 CSRF、无状态；业务鉴权由 {@link com.nexus.gateway.filter.AuthenticationGlobalFilter} 完成。
+ * 网关 WebFlux 安全：关闭 CSRF、无状态；authorizeExchange 使用 permitAll 仅表示「允许请求进入 Gateway 过滤链」。
+ * 对外的未认证默认拒绝由 {@link com.nexus.gateway.filter.AuthenticationGlobalFilter} 完成（非白名单路径须合法 JWT 且通过 Redis 在线态校验），
+ * 即业务层 fail-closed 不依赖此处 denyAll（若在此 denyAll，请求将无法到达自定义 GlobalFilter，除非把鉴权整体迁入 Spring Security）。
  */
 @Configuration
 @EnableWebFluxSecurity

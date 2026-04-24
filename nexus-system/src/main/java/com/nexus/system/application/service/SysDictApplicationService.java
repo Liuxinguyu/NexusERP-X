@@ -1,6 +1,8 @@
 package com.nexus.system.application.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.nexus.common.context.TenantContext;
 import com.nexus.common.core.domain.ResultCode;
 import com.nexus.common.exception.BusinessException;
@@ -40,10 +42,33 @@ public class SysDictApplicationService {
                 .orderByAsc(SysDictType::getDictType));
     }
 
+    public IPage<SysDictType> pageTypes(long current, long size, String dictName, String dictType) {
+        Long tenantId = requireTenantId();
+        return dictTypeMapper.selectPage(new Page<>(current, size),
+                new LambdaQueryWrapper<SysDictType>()
+                        .eq(SysDictType::getTenantId, tenantId)
+                        .eq(SysDictType::getDelFlag, 0)
+                        .like(org.springframework.util.StringUtils.hasText(dictName), SysDictType::getDictName, dictName)
+                        .like(org.springframework.util.StringUtils.hasText(dictType), SysDictType::getDictType, dictType)
+                        .orderByDesc(SysDictType::getId));
+    }
+
+    public IPage<SysDictItem> pageItems(long current, long size, String dictType, String label) {
+        Long tenantId = requireTenantId();
+        return dictItemMapper.selectPage(new Page<>(current, size),
+                new LambdaQueryWrapper<SysDictItem>()
+                        .eq(SysDictItem::getTenantId, tenantId)
+                        .eq(SysDictItem::getDelFlag, 0)
+                        .eq(org.springframework.util.StringUtils.hasText(dictType), SysDictItem::getDictType, dictType)
+                        .like(org.springframework.util.StringUtils.hasText(label), SysDictItem::getLabel, label)
+                        .orderByAsc(SysDictItem::getSort)
+                        .orderByDesc(SysDictItem::getId));
+    }
+
     public SysDictType getType(Long id) {
         Long tenantId = requireTenantId();
         SysDictType type = dictTypeMapper.selectById(id);
-        if (type == null || !Objects.equals(type.getTenantId(), tenantId) || type.getDelFlag() == 1) {
+        if (type == null || !Objects.equals(type.getTenantId(), tenantId) || Objects.equals(type.getDelFlag(), 1)) {
             throw new BusinessException(ResultCode.NOT_FOUND, "字典类型不存在");
         }
         return type;
@@ -76,7 +101,15 @@ public class SysDictApplicationService {
     }
 
     public void updateType(Long id, SystemDictDtos.DictTypeUpdateRequest req) {
-        SysDictType type = getType(id);
+        Long currentTenantId = requireTenantId();
+        SysDictType type = dictTypeMapper.selectById(id);
+        if (type == null || Objects.equals(type.getDelFlag(), 1)) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "字典类型不存在");
+        }
+        assertGlobalTenantWriteIsolation(type.getTenantId(), currentTenantId);
+        if (!Objects.equals(type.getTenantId(), currentTenantId)) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "字典类型不存在");
+        }
         
         if (!Objects.equals(type.getDictType(), req.getDictType())) {
             boolean exists = dictTypeMapper.exists(new LambdaQueryWrapper<SysDictType>()
@@ -99,7 +132,15 @@ public class SysDictApplicationService {
     }
 
     public void deleteType(Long id) {
-        SysDictType type = getType(id);
+        Long currentTenantId = requireTenantId();
+        SysDictType type = dictTypeMapper.selectById(id);
+        if (type == null || Objects.equals(type.getDelFlag(), 1)) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "字典类型不存在");
+        }
+        assertGlobalTenantWriteIsolation(type.getTenantId(), currentTenantId);
+        if (!Objects.equals(type.getTenantId(), currentTenantId)) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "字典类型不存在");
+        }
         boolean hasItems = dictItemMapper.exists(new LambdaQueryWrapper<SysDictItem>()
                 .eq(SysDictItem::getTenantId, type.getTenantId())
                 .eq(SysDictItem::getDictType, type.getDictType())
@@ -127,7 +168,7 @@ public class SysDictApplicationService {
     public SysDictItem getItem(Long id) {
         Long tenantId = requireTenantId();
         SysDictItem item = dictItemMapper.selectById(id);
-        if (item == null || !Objects.equals(item.getTenantId(), tenantId) || item.getDelFlag() == 1) {
+        if (item == null || !Objects.equals(item.getTenantId(), tenantId) || Objects.equals(item.getDelFlag(), 1)) {
             throw new BusinessException(ResultCode.NOT_FOUND, "字典数据不存在");
         }
         return item;
@@ -155,7 +196,15 @@ public class SysDictApplicationService {
     }
 
     public void updateItem(Long id, SystemDictDtos.DictItemUpdateRequest req) {
-        SysDictItem item = getItem(id);
+        Long currentTenantId = requireTenantId();
+        SysDictItem item = dictItemMapper.selectById(id);
+        if (item == null || Objects.equals(item.getDelFlag(), 1)) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "字典数据不存在");
+        }
+        assertGlobalTenantWriteIsolation(item.getTenantId(), currentTenantId);
+        if (!Objects.equals(item.getTenantId(), currentTenantId)) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "字典数据不存在");
+        }
         item.setLabel(req.getLabel());
         item.setValue(req.getValue());
         if (req.getSort() != null) item.setSort(req.getSort());
@@ -169,7 +218,15 @@ public class SysDictApplicationService {
     }
 
     public void deleteItem(Long id) {
-        SysDictItem item = getItem(id);
+        Long currentTenantId = requireTenantId();
+        SysDictItem item = dictItemMapper.selectById(id);
+        if (item == null || Objects.equals(item.getDelFlag(), 1)) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "字典数据不存在");
+        }
+        assertGlobalTenantWriteIsolation(item.getTenantId(), currentTenantId);
+        if (!Objects.equals(item.getTenantId(), currentTenantId)) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "字典数据不存在");
+        }
         item.setDelFlag(1);
         item.setUpdateTime(LocalDateTime.now());
         item.setUpdateBy(com.nexus.common.context.GatewayUserContext.getUserId());
@@ -204,5 +261,11 @@ public class SysDictApplicationService {
             throw new BusinessException(ResultCode.BAD_REQUEST, "缺少租户上下文");
         }
         return tid;
+    }
+
+    private static void assertGlobalTenantWriteIsolation(Long targetTenantId, Long currentTenantId) {
+        if (targetTenantId != null && targetTenantId == 0L && currentTenantId != 0L) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "越权操作：普通租户绝对禁止修改或删除系统级全局配置！");
+        }
     }
 }

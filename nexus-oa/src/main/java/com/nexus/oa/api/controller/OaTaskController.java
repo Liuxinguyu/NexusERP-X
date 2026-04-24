@@ -5,6 +5,7 @@ import com.nexus.common.core.domain.Result;
 import com.nexus.oa.application.service.OaTaskApplicationService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
@@ -19,6 +20,7 @@ public class OaTaskController {
     private final OaTaskApplicationService service;
 
     @GetMapping("/page")
+    @PreAuthorize("@ss.hasPermi('oa:task:list')")
     public Result<?> page(
             @RequestParam(defaultValue = "1") long current,
             @RequestParam(defaultValue = "10") long size,
@@ -28,17 +30,20 @@ public class OaTaskController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("@ss.hasPermi('oa:task:list')")
     public Result<OaTaskApplicationService.TaskVO> getById(@PathVariable Long id) {
         return Result.ok(service.getById(id));
     }
 
     @OpLog(module = "任务看板", type = "新建任务")
+    @PreAuthorize("@ss.hasPermi('oa:task:add')")
     @PostMapping
     public Result<Long> create(@Valid @RequestBody OaTaskApplicationService.TaskCreateReq req) {
         return Result.ok(service.create(req));
     }
 
     @OpLog(module = "任务看板", type = "修改任务")
+    @PreAuthorize("@ss.hasPermi('oa:task:edit')")
     @PutMapping("/{id}")
     public Result<Void> update(@PathVariable Long id,
                                  @Valid @RequestBody OaTaskApplicationService.TaskUpdateReq req) {
@@ -47,6 +52,7 @@ public class OaTaskController {
     }
 
     @OpLog(module = "任务看板", type = "删除任务")
+    @PreAuthorize("@ss.hasPermi('oa:task:delete')")
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Long id) {
         service.delete(id);
@@ -54,6 +60,7 @@ public class OaTaskController {
     }
 
     @OpLog(module = "任务看板", type = "接受任务")
+    @PreAuthorize("isAuthenticated()")
     @PutMapping("/{id}/accept")
     public Result<Void> accept(@PathVariable Long id) {
         service.accept(id);
@@ -61,6 +68,7 @@ public class OaTaskController {
     }
 
     @OpLog(module = "任务看板", type = "更新进度")
+    @PreAuthorize("isAuthenticated()")
     @PutMapping("/{id}/progress")
     public Result<Void> updateProgress(@PathVariable Long id, @RequestParam int progress) {
         service.updateProgress(id, progress);
@@ -68,6 +76,7 @@ public class OaTaskController {
     }
 
     @OpLog(module = "任务看板", type = "完成任务")
+    @PreAuthorize("isAuthenticated()")
     @PutMapping("/{id}/complete")
     public Result<Void> complete(@PathVariable Long id) {
         service.complete(id);
@@ -75,6 +84,7 @@ public class OaTaskController {
     }
 
     @OpLog(module = "任务看板", type = "取消任务")
+    @PreAuthorize("isAuthenticated()")
     @PutMapping("/{id}/cancel")
     public Result<Void> cancel(@PathVariable Long id) {
         service.cancel(id);
@@ -82,19 +92,22 @@ public class OaTaskController {
     }
 
     @GetMapping("/{id}/comments")
+    @PreAuthorize("isAuthenticated()")
     public Result<List<OaTaskApplicationService.TaskCommentVO>> listComments(@PathVariable Long id) {
         return Result.ok(service.listComments(id));
     }
 
     @OpLog(module = "任务看板", type = "添加评论")
+    @PreAuthorize("isAuthenticated()")
     @PostMapping("/{id}/comment")
-    public Result<Void> addComment(@PathVariable Long id, @RequestBody CommentReq req) {
+    public Result<Void> addComment(@PathVariable Long id, @Valid @RequestBody CommentReq req) {
         service.addComment(id, req.getContent());
         return Result.ok();
     }
 
     @lombok.Data
     public static class CommentReq {
+        @jakarta.validation.constraints.NotBlank
         private String content;
     }
 }

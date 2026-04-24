@@ -2,13 +2,13 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.nexus.system.infrastructure.mapper.WorkbenchMapper">
 
-    <!-- 今日销售额（已出库的销售订单，status=1） -->
+    <!-- 今日销售额（已出库的销售订单，status=3） -->
     <select id="todaySaleAmount" resultType="java.math.BigDecimal">
         SELECT IFNULL(SUM(total_amount), 0)
         FROM erp_sale_order
         WHERE tenant_id = #{tenantId}
           AND del_flag = 0
-          AND status = 1
+          AND status = 3
           AND DATE(create_time) = CURDATE()
     </select>
 
@@ -42,8 +42,8 @@
     <!-- 待审批数（请假待审批 + 采购待审核） -->
     <select id="pendingApprovalCount" resultType="java.lang.Long">
         SELECT (
-            SELECT COUNT(*) FROM oa_leave_request r
-            WHERE r.tenant_id = #{tenantId} AND r.del_flag = 0 AND r.status = 1
+            SELECT COUNT(*) FROM oa_leave r
+            WHERE r.tenant_id = #{tenantId} AND r.del_flag = 0 AND r.status IN (1, 2)
               AND EXISTS (
                   SELECT 1 FROM oa_leave_approval a
                   WHERE a.tenant_id = #{tenantId} AND a.del_flag = 0
@@ -74,7 +74,7 @@
         FROM erp_sale_order
         WHERE tenant_id = #{tenantId}
           AND del_flag = 0
-          AND status = 1
+          AND status = 3
           AND create_time >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
         GROUP BY DATE_FORMAT(create_time, '%Y-%m')
         ORDER BY month ASC
@@ -98,14 +98,14 @@
     <select id="topProducts" resultType="com.nexus.system.application.dto.WorkbenchDtos$TopProduct">
         SELECT
             si.product_id AS productId,
-            p.name AS productName,
+            p.product_name AS productName,
             SUM(si.quantity) AS saleQuantity,
             SUM(si.subtotal) AS saleAmount
         FROM erp_sale_order_item si
-        INNER JOIN erp_sale_order so ON so.id = si.order_id AND so.tenant_id = #{tenantId} AND so.del_flag = 0 AND so.status = 1
+        INNER JOIN erp_sale_order so ON so.id = si.order_id AND so.tenant_id = #{tenantId} AND so.del_flag = 0 AND so.status = 3
         INNER JOIN erp_product_info p ON p.id = si.product_id AND p.tenant_id = #{tenantId} AND p.del_flag = 0
         WHERE si.tenant_id = #{tenantId} AND si.del_flag = 0
-        GROUP BY si.product_id, p.name
+        GROUP BY si.product_id, p.product_name
         ORDER BY saleQuantity DESC
         LIMIT #{limit}
     </select>
@@ -114,8 +114,8 @@
     <select id="stockAlarmList" resultType="com.nexus.system.application.dto.WorkbenchDtos$StockAlarmItem">
         SELECT
             s.product_id AS productId,
-            p.name AS productName,
-            w.name AS warehouseName,
+            p.product_name AS productName,
+            w.warehouse_name AS warehouseName,
             s.qty AS currentQty,
             p.min_stock AS minStock
         FROM erp_stock s

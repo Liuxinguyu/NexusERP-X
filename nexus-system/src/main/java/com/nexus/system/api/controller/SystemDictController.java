@@ -1,5 +1,6 @@
 package com.nexus.system.api.controller;
 
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.nexus.common.annotation.OpLog;
 import com.nexus.common.core.domain.Result;
 import com.nexus.system.application.dto.SystemDictDtos;
@@ -29,7 +30,17 @@ public class SystemDictController {
         return Result.ok(sysDictApplicationService.listTypes());
     }
 
-    @GetMapping("/dict-type/{id}")
+    @GetMapping("/dict-type/page")
+    @PreAuthorize("@ss.hasPermi('system:dict:list')")
+    public Result<IPage<SysDictType>> pageTypes(
+            @RequestParam(defaultValue = "1") long current,
+            @RequestParam(defaultValue = "10") long size,
+            @RequestParam(required = false) String dictName,
+            @RequestParam(required = false) String dictType) {
+        return Result.ok(sysDictApplicationService.pageTypes(current, size, dictName, dictType));
+    }
+
+    @GetMapping("/dict-type/detail/{id}")
     @PreAuthorize("@ss.hasPermi('system:dict:edit')")
     public Result<SysDictType> getType(@PathVariable Long id) {
         return Result.ok(sysDictApplicationService.getType(id));
@@ -65,7 +76,17 @@ public class SystemDictController {
         return Result.ok(sysDictApplicationService.listItemsByType(dictType));
     }
 
-    @GetMapping("/dict-item/{id}")
+    @GetMapping("/dict-item/page")
+    @PreAuthorize("@ss.hasPermi('system:dict:list')")
+    public Result<IPage<SysDictItem>> pageItems(
+            @RequestParam(defaultValue = "1") long current,
+            @RequestParam(defaultValue = "10") long size,
+            @RequestParam(required = false) String dictType,
+            @RequestParam(required = false) String label) {
+        return Result.ok(sysDictApplicationService.pageItems(current, size, dictType, label));
+    }
+
+    @GetMapping("/dict-item/detail/{id}")
     @PreAuthorize("@ss.hasPermi('system:dict:edit')")
     public Result<SysDictItem> getItem(@PathVariable Long id) {
         return Result.ok(sysDictApplicationService.getItem(id));

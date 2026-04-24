@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { menuApi } from '../../api/system-crud'
 import type { MenuTreeNode, MenuForm } from '../../types/system-crud'
-import { PermGate } from '../../context/PermissionsContext'
+import { PermGate, usePermissions } from '../../context/PermissionsContext'
 import { SYSTEM_PERMS } from '../../lib/system-perms'
 import { useToast } from '../../components/Toast'
 import { useConfirm } from '../../components/ConfirmDialog'
 import Modal from '../../components/Modal'
+import { useStaleGuard } from '../../hooks/useStaleGuard'
 
 interface FlatMenuRow extends MenuTreeNode {
   depth: number
@@ -44,6 +45,19 @@ function flattenForSelect(
   return out
 }
 
+function collectDescendantIds(nodes: MenuTreeNode[], targetId: number): Set<number> {
+  const result = new Set<number>()
+  const walk = (arr: MenuTreeNode[], inTargetBranch: boolean) => {
+    for (const n of arr) {
+      const hit = inTargetBranch || n.id === targetId
+      if (hit) result.add(n.id)
+      walk(n.children ?? [], hit)
+    }
+  }
+  walk(nodes, false)
+  return result
+}
+
 const MENU_TYPE_BADGE: Record<string, { label: string; cls: string }> = {
   M: { label: '目录', cls: 'bg-blue-50 text-blue-600' },
   C: { label: '菜单', cls: 'bg-emerald-50 text-emerald-600' },
@@ -66,6 +80,7 @@ const emptyForm: MenuForm = {
 export default function MenuManage() {
   const toast = useToast()
   const confirm = useConfirm()
+  const { can } = usePermissions()
 
   const [tree, setTree] = useState<MenuTreeNode[]>([])
   const [loading, setLoading] = useState(false)
@@ -78,20 +93,25 @@ export default function MenuManage() {
   })
   const [form, setForm] = useState<MenuForm>({ ...emptyForm })
   const [submitting, setSubmitting] = useState(false)
+  const guard = useStaleGuard()
 
   // ================= Load =================
 
   const loadTree = useCallback(async () => {
+    const id = guard.nextId()
     setLoading(true)
     try {
       const data = await menuApi.tree()
+      if (!guard.isCurrent(id)) return
       setTree(Array.isArray(data) ? data : [])
     } catch (e) {
+      if (!guard.isCurrent(id)) return
       toast.error(e instanceof Error ? e.message : '加载菜单树失败')
     } finally {
+      if (!guard.isCurrent(id)) return
       setLoading(false)
     }
-  }, [])
+  }, [guard, toast])
 
   useEffect(() => {
     void loadTree()
@@ -154,6 +174,7 @@ export default function MenuManage() {
 
   const submitForm = async () => {
     if (!form.menuName.trim()) { toast.error('菜单名称不能为空'); return }
+    if (submitting) return
     setSubmitting(true)
     try {
       if (modal.isEdit && modal.id != null) {
@@ -184,14 +205,35 @@ export default function MenuManage() {
   // ================= Derived =================
 
   const flatRows = flattenTree(tree, 0, expandedIds)
-  const filteredRows = menuNameQ.trim()
-    ? flatRows.filter((r) =>
-        String(r.menuName ?? '')
-          .toLowerCase()
-          .includes(menuNameQ.trim().toLowerCase()),
-      )
-    : flatRows
-  const parentOptions = flattenForSelect(tree)
+  const keyword = menuNameQ.trim().toLowerCase()
+  const filteredRows = (() => {
+    if (!keyword) return flatRows
+    const matchExpanded = new Set<number>()
+    const walk = (nodes: MenuTreeNode, ancestors: number[]): void => {
+      const hit = String(nodes.menuName ?? '').toLowerCase().includes(keyword)
+      if (hit) {
+        ancestors.forEach((id) => matchExpanded.add(id))
+      }
+      ;(nodes.children ?? []).forEach((child) => walk(child, [...ancestors, nodes.id]))
+    }
+    tree.forEach((n) => walk(n, []))
+    const merged = new Set([...expandedIds, ...matchExpanded])
+    return flattenTree(tree, 0, merged).filter((r) => {
+      if (String(r.menuName ?? '').toLowerCase().includes(keyword)) return true
+      return matchExpanded.has(r.id)
+    })
+  })()
+  const forbiddenParentIds =
+    modal.isEdit && modal.id != null ? collectDescendantIds(tree, modal.id) : new Set<number>()
+  const parentOptions = flattenForSelect(tree).filter((o) => !forbiddenParentIds.has(o.id))
+
+  if (!can(SYSTEM_PERMS.menu.query)) {
+    return (
+      <div className="bg-white p-10 rounded-[2.5rem] shadow-sm ring-1 ring-slate-100 text-center text-slate-500 font-bold">
+        无权限访问：菜单管理
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-4 animate-in fade-in duration-500">

@@ -53,12 +53,18 @@ public class ErpStockApplicationService {
 
         Map<Long, String> productNames = Map.of();
         if (!pids.isEmpty()) {
-            List<ErpProductInfo> plist = productMapper.selectList(new LambdaQueryWrapper<ErpProductInfo>().in(ErpProductInfo::getId, pids));
+            List<ErpProductInfo> plist = productMapper.selectList(new LambdaQueryWrapper<ErpProductInfo>()
+                    .in(ErpProductInfo::getId, pids)
+                    .eq(ErpProductInfo::getTenantId, tenantId)
+                    .eq(ErpProductInfo::getDelFlag, 0));
             productNames = plist.stream().collect(Collectors.toMap(ErpProductInfo::getId, ErpProductInfo::getProductName, (a, b) -> a));
         }
         Map<Long, String> warehouseNames = Map.of();
         if (!wids.isEmpty()) {
-            List<ErpWarehouse> wlist = warehouseMapper.selectList(new LambdaQueryWrapper<ErpWarehouse>().in(ErpWarehouse::getId, wids));
+            List<ErpWarehouse> wlist = warehouseMapper.selectList(new LambdaQueryWrapper<ErpWarehouse>()
+                    .in(ErpWarehouse::getId, wids)
+                    .eq(ErpWarehouse::getTenantId, tenantId)
+                    .eq(ErpWarehouse::getDelFlag, 0));
             warehouseNames = wlist.stream().collect(Collectors.toMap(ErpWarehouse::getId, ErpWarehouse::getWarehouseName, (a, b) -> a));
         }
 

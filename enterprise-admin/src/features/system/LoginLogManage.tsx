@@ -2,13 +2,15 @@ import { useCallback, useEffect, useState } from 'react'
 import { loginLogApi, unwrapPage } from '../../api/system-crud'
 import type { LoginLogRow } from '../../types/system-crud'
 import { PermGate, usePermissions } from '../../context/PermissionsContext'
+import { formatDateTime } from '../../lib/format'
 import { SYSTEM_PERMS } from '../../lib/system-perms'
 import { useToast } from '../../components/Toast'
 import { useConfirm } from '../../components/ConfirmDialog'
+import { useStaleGuard } from '../../hooks/useStaleGuard'
 
 type LoginLogQuery = {
-  pageNum: number
-  pageSize: number
+  current: number
+  size: number
   username?: string
   status?: number
 }
@@ -24,41 +26,53 @@ export default function LoginLogManage() {
 
   // Query conditions
   const [query, setQuery] = useState<LoginLogQuery>({
-    pageNum: 1,
-    pageSize: 10,
+    current: 1,
+    size: 10,
     username: '',
     status: undefined,
   })
+  const [draft, setDraft] = useState({ username: '', status: '' })
+  const guard = useStaleGuard()
 
   const loadData = useCallback(async (q: LoginLogQuery) => {
+    const id = guard.nextId()
     setLoading(true)
     try {
       const { rows, total: t } = await unwrapPage(loginLogApi.page(q))
+      if (!guard.isCurrent(id)) return
       setList(rows)
       setTotal(t)
     } catch (e) {
+      if (!guard.isCurrent(id)) return
       setList([])
       setTotal(0)
       toast.error(e instanceof Error ? e.message : '加载登录日志失败')
     } finally {
+      if (!guard.isCurrent(id)) return
       setLoading(false)
     }
-  }, [])
+  }, [guard, toast])
 
   useEffect(() => {
     void loadData(query)
   }, [query, loadData])
 
   const handleSearch = () => {
-    setQuery((prev) => ({ ...prev, pageNum: 1 }))
+    setQuery((prev) => ({
+      ...prev,
+      current: 1,
+      username: draft.username.trim(),
+      status: draft.status === '' ? undefined : Number(draft.status),
+    }))
   }
 
   const handleReset = () => {
-    setQuery({ pageNum: 1, pageSize: 10, username: '', status: undefined })
+    setQuery({ current: 1, size: 10, username: '', status: undefined })
+    setDraft({ username: '', status: '' })
   }
 
   const changePage = (nextCurrent: number) => {
-    setQuery(prev => ({ ...prev, pageNum: nextCurrent }))
+    setQuery(prev => ({ ...prev, current: nextCurrent }))
   }
 
   const handleClean = async () => {
@@ -72,7 +86,7 @@ export default function LoginLogManage() {
     try {
       await loginLogApi.clean()
       toast.success('已清空登录日志')
-      setQuery((prev) => ({ ...prev, pageNum: 1 }))
+      setQuery((prev) => ({ ...prev, current: 1 }))
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '清空失败')
     }
@@ -117,16 +131,22 @@ export default function LoginLogManage() {
           <label className="text-[10px] font-black text-slate-400 uppercase">操作账号</label>
           <input
             placeholder="搜索用户名"
-            value={query.username}
-            onChange={(e) => setQuery({ ...query, username: e.target.value })}
+            value={draft.username}
+            onChange={(e) => setDraft((prev) => ({ ...prev, username: e.target.value }))}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSearch()
+            }}
             className="px-3 py-2 rounded-xl bg-slate-50 ring-1 ring-slate-200 text-sm w-44 font-bold focus:ring-indigo-500"
           />
         </div>
         <div className="space-y-1">
           <label className="text-[10px] font-black text-slate-400 uppercase">登录状态</label>
           <select
-            value={query.status ?? ''}
-            onChange={(e) => setQuery({ ...query, status: e.target.value === '' ? undefined : Number(e.target.value) })}
+            value={draft.status}
+            onChange={(e) => setDraft((prev) => ({ ...prev, status: e.target.value }))}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSearch()
+            }}
             className="px-3 py-2 rounded-xl bg-slate-50 ring-1 ring-slate-200 text-sm w-32 font-bold focus:ring-indigo-500"
           >
             <option value="">全部状态</option>
@@ -173,7 +193,7 @@ export default function LoginLogManage() {
             ) : (
               list.map((log) => (
                 <tr key={log.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-8 py-5 text-slate-500 text-xs tabular-nums">{log.createTime ?? '--'}</td>
+                  <td className="px-8 py-5 text-slate-500 text-xs tabular-nums">{formatDateTime(log.createTime)}</td>
                   <td className="px-8 py-5 text-slate-900 border-l border-transparent">{log.username}</td>
                   <td className="px-8 py-5 text-indigo-600 tabular-nums text-xs">{log.ip}</td>
                   <td className="px-8 py-5">
@@ -196,20 +216,36 @@ export default function LoginLogManage() {
         {/* 基础分页占位（配合后端补全） */}
         <div className="px-8 py-4 bg-slate-50/50 border-t border-slate-50 flex justify-between items-center text-xs font-bold text-slate-500">
           <div> 共检索到 <span className="text-slate-900">{total}</span> 条轨迹线索 </div>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
+            <select
+              value={query.size}
+              onChange={(e) =>
+                setQuery((prev) => ({
+                  ...prev,
+                  current: 1,
+                  size: Number(e.target.value),
+                }))
+              }
+              className="px-2 py-1 bg-white rounded-lg ring-1 ring-slate-200"
+            >
+              <option value={10}>10条/页</option>
+              <option value={20}>20条/页</option>
+              <option value={50}>50条/页</option>
+            </select>
+            <span>第 {query.current} / {Math.max(1, Math.ceil(total / query.size))} 页</span>
             <button
-              onClick={() => changePage(query.pageNum - 1)}
-              disabled={query.pageNum <= 1}
+              onClick={() => changePage(query.current - 1)}
+              disabled={query.current <= 1}
               className="px-3 py-1 bg-white rounded-lg ring-1 ring-slate-200 disabled:opacity-50 hover:bg-slate-50"
             >
               前页
             </button>
             <span className="px-3 py-1 text-slate-900 bg-white rounded-lg ring-1 ring-indigo-200 font-black">
-              {query.pageNum}
+              {query.current}
             </span>
             <button
-              onClick={() => changePage(query.pageNum + 1)}
-              disabled={query.pageNum * query.pageSize >= total}
+              onClick={() => changePage(query.current + 1)}
+              disabled={query.current >= Math.max(1, Math.ceil(total / query.size))}
               className="px-3 py-1 bg-white rounded-lg ring-1 ring-slate-200 disabled:opacity-50 hover:bg-slate-50"
             >
               后页

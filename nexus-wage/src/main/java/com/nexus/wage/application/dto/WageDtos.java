@@ -63,6 +63,7 @@ public final class WageDtos {
         @Pattern(regexp = "\\d{4}-(0[1-9]|1[0-2])", message = "月份格式非法，应为 YYYY-MM（01-12）")
         private String belongMonth;
         /** 为空则取当前租户下 OA 全部在职员工 */
+        @Size(max = 500, message = "单次最多支持 500 名员工")
         private List<Long> employeeIds;
     }
 
@@ -82,6 +83,28 @@ public final class WageDtos {
     @Data
     public static class ConfirmPayRequest {
         @NotEmpty
+        @Size(max = 500, message = "单次最多确认 500 条工资单")
         private List<Long> slipIds;
+    }
+
+    @Data
+    public static class ItemConfigView {
+        private Long id;
+        private String itemName;
+        private Integer calcType;
+        private BigDecimal defaultAmount;
+        private Integer itemKind;
+    }
+
+    @Data
+    public static class MonthlySlipView {
+        private Long id;
+        private String belongMonth;
+        private Long employeeId;
+        private BigDecimal baseSalary;
+        private BigDecimal subsidyTotal;
+        private BigDecimal deductionTotal;
+        private BigDecimal netPay;
+        private Integer status;
     }
 }

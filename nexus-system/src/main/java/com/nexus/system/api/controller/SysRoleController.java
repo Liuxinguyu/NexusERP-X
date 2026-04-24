@@ -33,11 +33,13 @@ public class SysRoleController {
         return Result.ok(roleApplicationService.page(current, size, roleName, roleCode));
     }
 
+    @PreAuthorize("@ss.hasPermi('system:role:list')")
     @GetMapping("/options")
     public Result<List<SystemAdminDtos.RoleOption>> options() {
         return Result.ok(roleApplicationService.listOptions());
     }
 
+    @PreAuthorize("@ss.hasPermi('system:role:list')")
     @GetMapping("/detail/{id}")
     public Result<SysRole> getById(@PathVariable Long id) {
         return Result.ok(roleApplicationService.getById(id));
@@ -66,6 +68,7 @@ public class SysRoleController {
         return Result.ok();
     }
 
+    @PreAuthorize("@ss.hasPermi('system:role:list')")
     @GetMapping("/{id}/menu-ids")
     public Result<List<Long>> menuIds(@PathVariable Long id) {
         return Result.ok(roleApplicationService.listMenuIds(id));
@@ -73,6 +76,7 @@ public class SysRoleController {
 
     @OpLog(module = "角色管理", type = "分配菜单")
     @PutMapping("/{id}/menus")
+    @PreAuthorize("@ss.hasPermi('system:role:edit')")
     public Result<Void> assignMenus(@PathVariable Long id, @Valid @RequestBody SystemAdminDtos.RoleMenuAssignRequest req) {
         roleApplicationService.assignMenus(id, req);
         return Result.ok();

@@ -120,6 +120,7 @@ CREATE TABLE erp_sale_order (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
   tenant_id BIGINT NOT NULL,
   order_no VARCHAR(64) NOT NULL,
+  customer_id BIGINT,
   customer_name VARCHAR(128) NOT NULL,
   warehouse_id BIGINT NOT NULL,
   total_amount DECIMAL(18,2) NOT NULL DEFAULT 0.00,
@@ -131,6 +132,7 @@ CREATE TABLE erp_sale_order (
   update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   UNIQUE (tenant_id, order_no)
 );
+CREATE INDEX idx_eso_customer ON erp_sale_order(customer_id);
 CREATE INDEX idx_eso_wh ON erp_sale_order(warehouse_id);
 
 CREATE TABLE erp_sale_order_item (

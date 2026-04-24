@@ -2,14 +2,14 @@ package com.nexus.common.mybatis.tenant;
 
 import com.baomidou.mybatisplus.extension.plugins.handler.TenantLineHandler;
 import com.nexus.common.context.TenantContext;
-import com.nexus.common.core.domain.ResultCode;
-import com.nexus.common.exception.BusinessException;
+import lombok.extern.slf4j.Slf4j;
 import net.sf.jsqlparser.expression.Expression;
 import net.sf.jsqlparser.expression.LongValue;
 import org.springframework.stereotype.Component;
 
 import java.util.Set;
 
+@Slf4j
 @Component
 public class NexusTenantLineHandler implements TenantLineHandler {
 
@@ -21,7 +21,8 @@ public class NexusTenantLineHandler implements TenantLineHandler {
     public Expression getTenantId() {
         Long tenantId = TenantContext.getTenantId();
         if (tenantId == null) {
-            throw new BusinessException(ResultCode.BAD_REQUEST.getCode(), "缺少租户上下文 tenant_id");
+            log.warn("TenantContext 为空，返回降级值 -1 防止全量数据泄露");
+            return new LongValue(-1L);
         }
         return new LongValue(tenantId);
     }

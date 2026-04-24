@@ -170,7 +170,7 @@ public final class OaDtos {
         private Integer earlyLeaveDays;    // 早退次数
         private Integer absentDays;        // 旷工天数
         private Integer missingCardDays;   // 缺卡次数
-        private Integer overtimeHours;     // 加班时长（小时）
+        private BigDecimal overtimeHours;     // 加班时长（小时）
     }
 
     // ===================== 请假（新表） =====================

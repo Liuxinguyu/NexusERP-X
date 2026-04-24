@@ -7,6 +7,7 @@ import { PermGate } from '../../../context/PermissionsContext'
 import { flattenOrgTree } from '../../../lib/org-flat'
 import { SYSTEM_PERMS } from '../../../lib/system-perms'
 import type { OrgNode, OrgCreateRequest } from '../../../types/system-crud'
+import { useStaleGuard } from '../../../hooks/useStaleGuard'
 
 const ORG_TYPE_MAP: Record<number, string> = {
   1: '全资总部',
@@ -163,19 +164,23 @@ export default function OrgSidebar({
     status: 1,
   })
   const [submitting, setSubmitting] = useState(false)
+  const guard = useStaleGuard()
 
   const loadOrgTree = useCallback(async () => {
+    const id = guard.nextId()
     try {
       const tree = await orgApi.tree()
       const rawTree = Array.isArray(tree) ? tree : []
+      if (!guard.isCurrent(id)) return
       setOrgTree(rawTree)
       if (onOrgOptionsLoaded) {
         onOrgOptionsLoaded(flattenOrgTree(rawTree))
       }
     } catch (e) {
+      if (!guard.isCurrent(id)) return
       setOrgTree([])
     }
-  }, [onOrgOptionsLoaded])
+  }, [onOrgOptionsLoaded, guard])
 
   useEffect(() => {
     void loadOrgTree()
@@ -230,6 +235,7 @@ export default function OrgSidebar({
       toast.error('组织名称和编码必填')
       return
     }
+    if (submitting) return
     setSubmitting(true)
     try {
       if (orgModal.isEdit && orgModal.id != null) {

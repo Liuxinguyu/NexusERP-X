@@ -3,6 +3,9 @@ import { purchaseOrderApi, supplierApi, productApi } from '../../api/erp-crud'
 import { pickPageRecords } from '../../lib/http-helpers'
 import { useToast } from '../../components/Toast'
 import { useConfirm } from '../../components/ConfirmDialog'
+import { PermGate, usePermissions } from '../../context/PermissionsContext'
+import { ERP_PERMS } from '../../lib/business-perms'
+import { useStaleGuard } from '../../hooks/useStaleGuard'
 import Modal from '../../components/Modal'
 import type { PurchaseOrderRow, SupplierRow, ProductRow } from '../../types/erp-crud'
 
@@ -14,6 +17,7 @@ const STATUS_MAP: Record<string, string | undefined> = {
 export default function PurchaseOrderManage() {
   const toast = useToast()
   const confirm = useConfirm()
+  const { can } = usePermissions()
   const [list, setList] = useState<PurchaseOrderRow[]>([])
   const [total, setTotal] = useState(0)
   const [current, setCurrent] = useState(1)
@@ -29,20 +33,27 @@ export default function PurchaseOrderManage() {
   const [remark, setRemark] = useState('')
   const [items, setItems] = useState<Array<{ productId: number; quantity: number; unitPrice: number }>>([])
   const [submitting, setSubmitting] = useState(false)
+  const guard = useStaleGuard()
 
   const loadData = useCallback(async () => {
+    const id = guard.nextId()
     setLoading(true)
     try {
       const res = await purchaseOrderApi.page({ current, size, status: STATUS_MAP[activeTab] })
+      if (!guard.isCurrent(id)) return
       setList(pickPageRecords(res))
       setTotal(res.total ?? 0)
     } catch (e) {
+      if (!guard.isCurrent(id)) return
       toast.error(e instanceof Error ? e.message : '加载采购订单失败')
       setList([])
       setTotal(0)
     }
-    finally { setLoading(false) }
-  }, [current, activeTab])
+    finally {
+      if (!guard.isCurrent(id)) return
+      setLoading(false)
+    }
+  }, [current, activeTab, guard, toast])
 
   useEffect(() => { void loadData() }, [loadData])
 
@@ -68,6 +79,7 @@ export default function PurchaseOrderManage() {
 
   const handleSubmit = async () => {
     if (!supplierId || items.length === 0) { toast.error('请选择供应商并添加商品'); return }
+    if (submitting) return
     setSubmitting(true)
     try {
       await purchaseOrderApi.create({ supplierId, remark, items })
@@ -99,6 +111,10 @@ export default function PurchaseOrderManage() {
     return <span className={`px-2 py-1 rounded-lg text-[10px] font-black ${cls}`}>{label}</span>
   }
 
+  if (!can(ERP_PERMS.purchaseOrder.list)) {
+    return <div className="p-8 text-center text-slate-400 font-bold">暂无权限访问</div>
+  }
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex justify-between items-center">
@@ -109,7 +125,9 @@ export default function PurchaseOrderManage() {
             >{t}</button>
           ))}
         </div>
-        <button onClick={openForm} className="px-8 py-3 bg-indigo-600 text-white rounded-2xl text-sm font-black shadow-xl shadow-indigo-200 hover:bg-indigo-500 transition-all">+ 新建采购单</button>
+        <PermGate perms={[ERP_PERMS.purchaseOrder.add]}>
+          <button onClick={() => void openForm()} className="px-8 py-3 bg-indigo-600 text-white rounded-2xl text-sm font-black shadow-xl shadow-indigo-200 hover:bg-indigo-500 transition-all">+ 新建采购单</button>
+        </PermGate>
       </div>
 
       <div className="bg-white rounded-[2.5rem] shadow-sm ring-1 ring-slate-100 overflow-hidden">
@@ -136,14 +154,26 @@ export default function PurchaseOrderManage() {
                 <td className="px-8 py-6">{statusLabel(o.status)}</td>
                 <td className="px-8 py-6 text-right">
                   <div className="flex gap-3 justify-end">
-                    {String(o.status) === '0' && <button onClick={() => handleAction(o.id!, 'submit')} className="text-indigo-600 text-xs font-black hover:underline">提交</button>}
+                    {String(o.status) === '0' && (
+                      <PermGate perms={[ERP_PERMS.purchaseOrder.submit]}>
+                        <button onClick={() => void handleAction(o.id!, 'submit')} className="text-indigo-600 text-xs font-black hover:underline">提交</button>
+                      </PermGate>
+                    )}
                     {String(o.status) === '1' && (
                       <>
-                        <button onClick={() => handleAction(o.id!, 'approve')} className="text-indigo-600 text-xs font-black hover:underline">审批</button>
-                        <button onClick={() => handleAction(o.id!, 'reject')} className="text-rose-500 text-xs font-black hover:underline">驳回</button>
+                        <PermGate perms={[ERP_PERMS.purchaseOrder.approve]}>
+                          <button onClick={() => void handleAction(o.id!, 'approve')} className="text-indigo-600 text-xs font-black hover:underline">审批</button>
+                        </PermGate>
+                        <PermGate perms={[ERP_PERMS.purchaseOrder.reject]}>
+                          <button onClick={() => void handleAction(o.id!, 'reject')} className="text-rose-500 text-xs font-black hover:underline">驳回</button>
+                        </PermGate>
                       </>
                     )}
-                    {String(o.status) === '2' && <button onClick={() => handleAction(o.id!, 'confirmInbound')} className="text-emerald-600 text-xs font-black hover:underline">确认入库</button>}
+                    {String(o.status) === '2' && (
+                      <PermGate perms={[ERP_PERMS.purchaseOrder.inbound]}>
+                        <button onClick={() => void handleAction(o.id!, 'confirmInbound')} className="text-emerald-600 text-xs font-black hover:underline">确认入库</button>
+                      </PermGate>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -192,17 +222,19 @@ export default function PurchaseOrderManage() {
                 <input type="number" placeholder="单价" value={it.unitPrice} min={0}
                   onChange={e => updateItem(idx, 'unitPrice', Math.max(0, Number(e.target.value)))}
                   className="flex-1 px-3 py-2 rounded-xl bg-slate-50 ring-1 ring-slate-200 text-xs font-bold text-right" />
-                <button onClick={() => removeItem(idx)} className="text-rose-400 text-xs font-black">删除</button>
+                <button onClick={() => void removeItem(idx)} className="text-rose-400 text-xs font-black">删除</button>
               </div>
             ))}
           </div>
         </div>
         <div className="p-8 border-t border-slate-100 flex gap-4">
           <button onClick={() => setFormOpen(false)} className="flex-1 py-3 bg-white rounded-2xl ring-1 ring-slate-200 font-black text-xs text-slate-400">取消</button>
-          <button onClick={handleSubmit} disabled={submitting}
-            className="flex-[2] py-3 bg-indigo-600 text-white rounded-2xl font-black text-xs shadow-xl shadow-indigo-200 hover:bg-indigo-500 transition-all disabled:opacity-60">
-            {submitting ? '提交中...' : '创建采购单'}
-          </button>
+          <PermGate perms={[ERP_PERMS.purchaseOrder.add]}>
+            <button onClick={() => void handleSubmit()} disabled={submitting}
+              className="flex-[2] py-3 bg-indigo-600 text-white rounded-2xl font-black text-xs shadow-xl shadow-indigo-200 hover:bg-indigo-500 transition-all disabled:opacity-60">
+              {submitting ? '提交中...' : '创建采购单'}
+            </button>
+          </PermGate>
         </div>
       </Modal>
     </div>

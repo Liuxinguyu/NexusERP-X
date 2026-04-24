@@ -7,8 +7,6 @@ import com.nexus.common.domain.model.BaseTenantEntity;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-import java.time.LocalDateTime;
-
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("oa_task_comment")
@@ -21,5 +19,4 @@ public class OaTaskComment extends BaseTenantEntity {
     private Long userId;
     private String userName;
     private String content;
-    private LocalDateTime createTime;
 }

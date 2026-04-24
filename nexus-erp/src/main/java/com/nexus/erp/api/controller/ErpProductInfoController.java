@@ -8,6 +8,7 @@ import com.nexus.erp.application.service.ErpProductInfoApplicationService;
 import com.nexus.erp.domain.model.ErpProductInfo;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -28,6 +29,7 @@ public class ErpProductInfoController {
     private final ErpProductInfoApplicationService productInfoApplicationService;
 
     @GetMapping("/page")
+    @PreAuthorize("@ss.hasPermi('erp:product-info:list')")
     public Result<IPage<ErpProductInfo>> page(
             @RequestParam(defaultValue = "1") long current,
             @RequestParam(defaultValue = "10") long size,
@@ -37,12 +39,14 @@ public class ErpProductInfoController {
     }
 
     @PostMapping
+    @PreAuthorize("@ss.hasPermi('erp:product-info:add')")
     @OpLog(module = "ERP产品信息", type = "新增")
     public Result<Long> create(@Valid @RequestBody ErpFoundationDtos.ProductInfoCreateRequest req) {
         return Result.ok(productInfoApplicationService.create(req));
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("@ss.hasPermi('erp:product-info:edit')")
     @OpLog(module = "ERP产品信息", type = "修改")
     public Result<Void> update(@PathVariable Long id,
                                @Valid @RequestBody ErpFoundationDtos.ProductInfoUpdateRequest req) {
@@ -51,6 +55,7 @@ public class ErpProductInfoController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("@ss.hasPermi('erp:product-info:delete')")
     @OpLog(module = "ERP产品信息", type = "删除")
     public Result<Void> delete(@PathVariable Long id) {
         productInfoApplicationService.delete(id);

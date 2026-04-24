@@ -1,14 +1,15 @@
 package com.nexus.common.context;
 
+import com.alibaba.ttl.TransmittableThreadLocal;
+
 /**
  * 同租户内数据权限（部门/本人）线程上下文，与 JWT / 网关 Header 注入对齐。
  */
 public final class DataScopeContext {
 
-    private static final ThreadLocal<Integer> DATA_SCOPE = new ThreadLocal<>();
-    private static final ThreadLocal<Long> DEPT_ID = new ThreadLocal<>();
-    private static final ThreadLocal<Long> USER_ID = new ThreadLocal<>();
-    private static final ThreadLocal<Long> ROLE_ID = new ThreadLocal<>();
+    private static final ThreadLocal<Integer> DATA_SCOPE = new TransmittableThreadLocal<>();
+    private static final ThreadLocal<Long> DEPT_ID = new TransmittableThreadLocal<>();
+    private static final ThreadLocal<Long> USER_ID = new TransmittableThreadLocal<>();
 
     private DataScopeContext() {
     }
@@ -49,22 +50,9 @@ public final class DataScopeContext {
         return USER_ID.get();
     }
 
-    public static void setRoleId(Long roleId) {
-        if (roleId == null) {
-            ROLE_ID.remove();
-        } else {
-            ROLE_ID.set(roleId);
-        }
-    }
-
-    public static Long getRoleId() {
-        return ROLE_ID.get();
-    }
-
     public static void clear() {
         DATA_SCOPE.remove();
         DEPT_ID.remove();
         USER_ID.remove();
-        ROLE_ID.remove();
     }
 }

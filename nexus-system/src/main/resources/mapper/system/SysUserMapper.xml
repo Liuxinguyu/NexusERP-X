@@ -3,21 +3,16 @@
 <mapper namespace="com.nexus.system.infrastructure.mapper.SysUserMapper">
 
     <select id="selectUserList" parameterType="com.nexus.system.domain.model.SysUser" resultMap="SysUserResult">
-        select u.id, u.tenant_id, u.main_shop_id, u.main_org_id, u.username, u.nickname, u.email, u.phone, u.avatar, u.status, u.del_flag, u.create_by, u.create_time, u.update_by, u.update_time, o.org_name
+        select u.id, u.tenant_id, u.main_shop_id, u.main_org_id, u.username, u.real_name, u.avatar_url, u.status, u.del_flag, u.create_by, u.create_time, u.update_by, u.update_time, o.org_name
         from sys_user u
-        left join sys_org o on u.main_org_id = o.id
+        left join sys_org o on u.main_org_id = o.id and o.del_flag = 0
         where u.del_flag = 0
-        <if test="user.tenantId != null">
-            AND u.tenant_id = #{user.tenantId}
-        </if>
+          AND u.tenant_id = #{user.tenantId}
         <if test="user.username != null and user.username != ''">
             AND u.username like concat('%', #{user.username}, '%')
         </if>
         <if test="user.status != null">
             AND u.status = #{user.status}
-        </if>
-        <if test="user.phone != null and user.phone != ''">
-            AND u.phone like concat('%', #{user.phone}, '%')
         </if>
         <if test="user.mainOrgId != null">
             AND u.main_org_id = #{user.mainOrgId}
@@ -30,10 +25,8 @@
         <result property="mainShopId" column="main_shop_id" />
         <result property="mainOrgId" column="main_org_id" />
         <result property="username" column="username" />
-        <result property="nickname" column="nickname" />
-        <result property="email" column="email" />
-        <result property="phone" column="phone" />
-        <result property="avatar" column="avatar" />
+        <result property="realName" column="real_name" />
+        <result property="avatarUrl" column="avatar_url" />
         <result property="status" column="status" />
         <result property="delFlag" column="del_flag" />
         <result property="createBy" column="create_by" />

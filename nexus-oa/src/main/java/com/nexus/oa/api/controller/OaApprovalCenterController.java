@@ -5,6 +5,7 @@ import com.nexus.common.core.domain.Result;
 import com.nexus.oa.application.service.OaApprovalCenterService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
@@ -18,6 +19,7 @@ public class OaApprovalCenterController {
 
     /** 我发起的审批 */
     @GetMapping("/tasks/my-apply")
+    @PreAuthorize("isAuthenticated()")
     public Result<?> pageMyApply(
             @RequestParam(defaultValue = "1") long current,
             @RequestParam(defaultValue = "10") long size,
@@ -27,6 +29,7 @@ public class OaApprovalCenterController {
 
     /** 待我审批 */
     @GetMapping("/tasks/my-approve")
+    @PreAuthorize("isAuthenticated()")
     public Result<?> pageMyApprove(
             @RequestParam(defaultValue = "1") long current,
             @RequestParam(defaultValue = "10") long size,
@@ -35,28 +38,32 @@ public class OaApprovalCenterController {
     }
 
     @GetMapping("/tasks/{id}")
+    @PreAuthorize("isAuthenticated()")
     public Result<?> getById(@PathVariable Long id) {
         return Result.ok(service.getById(id));
     }
 
     @OpLog(module = "审批中心", type = "审批通过")
+    @PreAuthorize("@ss.hasPermi('oa:approval:approve')")
     @PostMapping("/tasks/{id}/approve")
     public Result<Void> approve(@PathVariable Long id,
-                                  @RequestBody ApproveReq req) {
+                                  @Valid @RequestBody ApproveReq req) {
         service.approve(id, req.getApproved(), req.getOpinion());
         return Result.ok();
     }
 
     @OpLog(module = "审批中心", type = "审批拒绝")
+    @PreAuthorize("@ss.hasPermi('oa:approval:approve')")
     @PostMapping("/tasks/{id}/reject")
     public Result<Void> reject(@PathVariable Long id,
-                                 @RequestBody ApproveReq req) {
+                                 @Valid @RequestBody ApproveReq req) {
         service.approve(id, false, req.getOpinion());
         return Result.ok();
     }
 
     @lombok.Data
     public static class ApproveReq {
+        @jakarta.validation.constraints.NotNull
         private Boolean approved;
         private String opinion;
     }

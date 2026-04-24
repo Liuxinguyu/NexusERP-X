@@ -6,13 +6,15 @@ import com.nexus.common.exception.BusinessException;
 import com.nexus.common.security.BearerTokenResolver;
 import com.nexus.common.security.SecurityUtils;
 import com.nexus.common.security.config.NexusSecurityProperties;
+import com.nexus.common.security.jwt.JwtTokenProvider;
+import com.nexus.common.utils.HttpRequestUtils;
 import com.nexus.system.application.dto.AuthDtos;
 import com.nexus.system.application.service.AuthApplicationService;
 import com.nexus.system.application.service.OnlineUserRedisService;
 import com.nexus.system.application.service.SysLoginLogApplicationService;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -30,10 +32,11 @@ public class AuthController {
     private final AuthApplicationService authApplicationService;
     private final OnlineUserRedisService onlineUserRedisService;
     private final NexusSecurityProperties nexusSecurityProperties;
+    private final JwtTokenProvider jwtTokenProvider;
     private final SysLoginLogApplicationService sysLoginLogApplicationService;
 
     @PostMapping("/login")
-    public Result<AuthDtos.PreAuthLoginResponse> login(@RequestBody AuthDtos.LoginRequest request, HttpServletRequest http) {
+    public Result<AuthDtos.PreAuthLoginResponse> login(@Valid @RequestBody AuthDtos.LoginRequest request, HttpServletRequest http) {
         return Result.ok(authApplicationService.login(request, http));
     }
 
@@ -47,21 +50,29 @@ public class AuthController {
     public Result<Void> logout(HttpServletRequest http) {
         var p = SecurityUtils.currentPrincipal();
         String raw = BearerTokenResolver.resolveRawToken(http, nexusSecurityProperties);
-        if (raw != null) {
-            onlineUserRedisService.removeToken(raw);
+        String jti = p != null ? p.getJti() : null;
+        if (jti == null && raw != null) {
+            try {
+                jti = jwtTokenProvider.parseTokenClaims(raw).getId();
+            } catch (Exception ignored) {
+            }
+        }
+        if (jti != null) {
+            onlineUserRedisService.removeToken(jti);
         }
         if (p != null && p.getUsername() != null) {
             sysLoginLogApplicationService.recordSuccess(
                     p.getTenantId(), p.getUsername(),
-                    clientIp(http), http.getHeader("User-Agent"), "用户注销");
+                    HttpRequestUtils.clientIp(http), http.getHeader("User-Agent"), "用户注销");
         }
         return Result.ok();
     }
 
     @PostMapping("/refresh")
     public Result<AuthDtos.LoginResponse> refresh(HttpServletRequest http) {
-        String old = BearerTokenResolver.resolveRawToken(http, nexusSecurityProperties);
-        return Result.ok(authApplicationService.refreshToken(old, http));
+        var p = SecurityUtils.currentPrincipal();
+        String oldTokenJti = p != null ? p.getJti() : null;
+        return Result.ok(authApplicationService.refreshToken(oldTokenJti, http));
     }
 
     @GetMapping("/shops")
@@ -80,21 +91,13 @@ public class AuthController {
         if (p == null || p.getUserId() == null) {
             throw new BusinessException(ResultCode.UNAUTHORIZED, "未登录");
         }
-        String old = BearerTokenResolver.resolveRawToken(http, nexusSecurityProperties);
+        String oldTokenJti = p.getJti();
         return Result.ok(authApplicationService.switchShop(
                 p.getUserId(), p.getTenantId(), p.getUsername(),
                 request == null ? null : request.getShopId(),
-                old,
+                oldTokenJti,
                 http
         ));
-    }
-
-    private static String clientIp(HttpServletRequest request) {
-        String x = request.getHeader("X-Forwarded-For");
-        if (StringUtils.hasText(x)) {
-            return x.split(",")[0].trim();
-        }
-        return request.getRemoteAddr();
     }
 }
 

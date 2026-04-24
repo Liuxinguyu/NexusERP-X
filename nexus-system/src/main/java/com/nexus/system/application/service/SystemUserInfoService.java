@@ -6,10 +6,12 @@ import com.nexus.common.exception.BusinessException;
 import com.nexus.common.security.NexusPrincipal;
 import com.nexus.system.application.dto.UserInfoDtos;
 import com.nexus.system.domain.model.SysMenu;
+import com.nexus.system.domain.model.SysRole;
 import com.nexus.system.domain.model.SysRoleMenu;
 import com.nexus.system.domain.model.SysUser;
 import com.nexus.system.domain.model.SysUserShopRole;
 import com.nexus.system.infrastructure.mapper.SysMenuMapper;
+import com.nexus.system.infrastructure.mapper.SysRoleMapper;
 import com.nexus.system.infrastructure.mapper.SysRoleMenuMapper;
 import com.nexus.system.infrastructure.mapper.SysUserMapper;
 import com.nexus.system.infrastructure.mapper.SysUserShopRoleMapper;
@@ -30,17 +32,20 @@ public class SystemUserInfoService {
 
     private final SysUserMapper userMapper;
     private final SysUserShopRoleMapper userShopRoleMapper;
+    private final SysRoleMapper roleMapper;
     private final SysRoleMenuMapper roleMenuMapper;
     private final SysMenuMapper menuMapper;
     private final SysNoticeApplicationService sysNoticeApplicationService;
 
     public SystemUserInfoService(SysUserMapper userMapper,
                                  SysUserShopRoleMapper userShopRoleMapper,
+                                 SysRoleMapper roleMapper,
                                  SysRoleMenuMapper roleMenuMapper,
                                  SysMenuMapper menuMapper,
                                  SysNoticeApplicationService sysNoticeApplicationService) {
         this.userMapper = userMapper;
         this.userShopRoleMapper = userShopRoleMapper;
+        this.roleMapper = roleMapper;
         this.roleMenuMapper = roleMenuMapper;
         this.menuMapper = menuMapper;
         this.sysNoticeApplicationService = sysNoticeApplicationService;
@@ -67,23 +72,88 @@ public class SystemUserInfoService {
         profile.setAccessibleShopIds(principal.getAccessibleShopIds());
         profile.setAccessibleOrgIds(principal.getAccessibleOrgIds());
 
-        List<UserInfoDtos.MenuNode> menus = queryMenuTree(principal.getUserId(), principal.getShopId());
+        List<UserInfoDtos.MenuNode> menus = queryMenuTree(principal.getUserId(), principal.getShopId(), principal.getTenantId());
+        List<String> permissions = queryPermissions(principal.getUserId(), principal.getShopId(), principal.getTenantId());
+        List<String> roles = queryRoleCodes(principal.getUserId(), principal.getShopId());
+
         UserInfoDtos.UserInfoResponse resp = new UserInfoDtos.UserInfoResponse();
         resp.setProfile(profile);
         resp.setMenus(menus);
+        resp.setPermissions(permissions);
+        resp.setRoles(roles);
         resp.setLatestNoticeTitle(sysNoticeApplicationService.latestPublishedTitle());
         return resp;
     }
 
-    private List<UserInfoDtos.MenuNode> queryMenuTree(Long userId, Long shopId) {
-        if (shopId == null) {
-            return List.of();
+    /**
+     * 查询用户在当前店铺下拥有的所有权限字符串（包含按钮级 F 类型菜单的 perms）。
+     */
+    private List<String> queryPermissions(Long userId, Long shopId, Long tenantId) {
+        if (shopId == null) return List.of();
+
+        List<Long> roleIds = getUserRoleIds(userId, shopId);
+        if (roleIds.isEmpty()) return List.of();
+
+        List<SysRoleMenu> roleMenus = roleMenuMapper.selectList(new LambdaQueryWrapper<SysRoleMenu>()
+                .in(SysRoleMenu::getRoleId, roleIds)
+                .eq(SysRoleMenu::getDelFlag, 0));
+        Set<Long> menuIds = new HashSet<>();
+        for (SysRoleMenu rm : roleMenus) {
+            if (rm.getMenuId() != null) menuIds.add(rm.getMenuId());
         }
+        if (menuIds.isEmpty()) return List.of();
+
+        LambdaQueryWrapper<SysMenu> qw = new LambdaQueryWrapper<SysMenu>()
+                .in(SysMenu::getId, menuIds)
+                .eq(SysMenu::getDelFlag, 0)
+                .eq(SysMenu::getStatus, 1)
+                .isNotNull(SysMenu::getPerms)
+                .select(SysMenu::getPerms);
+        if (tenantId != null) qw.eq(SysMenu::getTenantId, tenantId);
+
+        List<SysMenu> menus = menuMapper.selectList(qw);
+        Set<String> perms = new HashSet<>();
+        for (SysMenu m : menus) {
+            String p = m.getPerms();
+            if (p != null && !p.isBlank()) perms.add(p.trim());
+        }
+        return new ArrayList<>(perms);
+    }
+
+    /**
+     * 查询用户在当前店铺下的角色标识列表（roleCode）。
+     */
+    private List<String> queryRoleCodes(Long userId, Long shopId) {
+        if (shopId == null) return List.of();
+
+        List<Long> roleIds = getUserRoleIds(userId, shopId);
+        if (roleIds.isEmpty()) return List.of();
+
+        List<SysRole> roles = roleMapper.selectList(new LambdaQueryWrapper<SysRole>()
+                .in(SysRole::getId, roleIds)
+                .select(SysRole::getRoleCode));
+        Set<String> codes = new HashSet<>();
+        for (SysRole r : roles) {
+            if (r.getRoleCode() != null && !r.getRoleCode().isBlank()) {
+                codes.add(r.getRoleCode());
+            }
+        }
+        return new ArrayList<>(codes);
+    }
+
+    private List<Long> getUserRoleIds(Long userId, Long shopId) {
         List<SysUserShopRole> mapping = userShopRoleMapper.selectList(new LambdaQueryWrapper<SysUserShopRole>()
                 .eq(SysUserShopRole::getUserId, userId)
                 .eq(SysUserShopRole::getShopId, shopId)
                 .eq(SysUserShopRole::getDelFlag, 0));
-        List<Long> roleIds = mapping.stream().map(SysUserShopRole::getRoleId).filter(Objects::nonNull).distinct().toList();
+        return mapping.stream().map(SysUserShopRole::getRoleId).filter(Objects::nonNull).distinct().toList();
+    }
+
+    private List<UserInfoDtos.MenuNode> queryMenuTree(Long userId, Long shopId, Long tenantId) {
+        if (shopId == null) {
+            return List.of();
+        }
+        List<Long> roleIds = getUserRoleIds(userId, shopId);
         if (roleIds.isEmpty()) {
             return List.of();
         }
@@ -101,13 +171,17 @@ public class SystemUserInfoService {
             return List.of();
         }
 
-        expandWithAncestors(menuIds);
+        expandWithAncestors(menuIds, tenantId);
 
-        List<SysMenu> menus = menuMapper.selectList(new LambdaQueryWrapper<SysMenu>()
+        LambdaQueryWrapper<SysMenu> menuQw = new LambdaQueryWrapper<SysMenu>()
                 .in(SysMenu::getId, menuIds)
                 .eq(SysMenu::getDelFlag, 0)
                 .eq(SysMenu::getStatus, 1)
-                .eq(SysMenu::getVisible, 1));
+                .eq(SysMenu::getVisible, 1);
+        if (tenantId != null) {
+            menuQw.eq(SysMenu::getTenantId, tenantId);
+        }
+        List<SysMenu> menus = menuMapper.selectList(menuQw);
         if (menus.isEmpty()) {
             return List.of();
         }
@@ -174,15 +248,30 @@ public class SystemUserInfoService {
     /**
      * 将授权菜单的所有父级菜单 id 并入集合，保证树形结构完整。
      */
-    private void expandWithAncestors(Set<Long> menuIds) {
+    private void expandWithAncestors(Set<Long> menuIds, Long tenantId) {
+        if (menuIds.isEmpty()) {
+            return;
+        }
+        LambdaQueryWrapper<SysMenu> qw = new LambdaQueryWrapper<SysMenu>()
+                .eq(SysMenu::getDelFlag, 0)
+                .select(SysMenu::getId, SysMenu::getParentId);
+        if (tenantId != null) {
+            qw.eq(SysMenu::getTenantId, tenantId);
+        }
+        List<SysMenu> allMenus = menuMapper.selectList(qw);
+        Map<Long, Long> parentMap = new HashMap<>();
+        for (SysMenu m : allMenus) {
+            if (m.getId() != null && m.getParentId() != null) {
+                parentMap.put(m.getId(), m.getParentId());
+            }
+        }
         LinkedList<Long> queue = new LinkedList<>(menuIds);
         while (!queue.isEmpty()) {
             Long id = queue.poll();
-            SysMenu row = menuMapper.selectById(id);
-            if (row == null || row.getParentId() == null || row.getParentId() == 0) {
+            Long pid = parentMap.get(id);
+            if (pid == null || pid == 0) {
                 continue;
             }
-            Long pid = row.getParentId();
             if (menuIds.add(pid)) {
                 queue.add(pid);
             }

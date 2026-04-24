@@ -7,6 +7,7 @@ import { PermGate } from '../../context/PermissionsContext'
 import { DATA_SCOPE_OPTIONS, dataScopeLabel } from '../../lib/data-scope'
 import { flattenOrgTree } from '../../lib/org-flat'
 import { SYSTEM_PERMS } from '../../lib/system-perms'
+import { useStaleGuard } from '../../hooks/useStaleGuard'
 import type { RoleRow } from '../../types/system-crud'
 
 function parseIdArray(raw: unknown): number[] {
@@ -38,6 +39,18 @@ function buildMenuTree(raw: unknown): MenuTreeLite[] {
     return out
   }
   return walk(raw as unknown[])
+}
+
+function collectAllMenuIds(nodes: MenuTreeLite[]): number[] {
+  const ids: number[] = []
+  const walk = (arr: MenuTreeLite[]) => {
+    for (const n of arr) {
+      ids.push(n.id)
+      walk(n.children)
+    }
+  }
+  walk(nodes)
+  return ids
 }
 
 function MenuTreeView({
@@ -131,13 +144,14 @@ export default function RoleManage() {
   const [list, setList] = useState<RoleRow[]>([])
   const [total, setTotal] = useState(0)
   const [current, setCurrent] = useState(1)
-  const [size] = useState(10)
+  const [size, setSize] = useState(10)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
   // --- search ---
   const [roleNameQ, setRoleNameQ] = useState('')
   const [roleCodeQ, setRoleCodeQ] = useState('')
+  const [draft, setDraft] = useState({ roleName: '', roleCode: '' })
   const [statusQ, setStatusQ] = useState<number | undefined>(undefined)
   const [searchNonce, setSearchNonce] = useState(0)
 
@@ -171,12 +185,17 @@ export default function RoleManage() {
   const [checkedMenus, setCheckedMenus] = useState<Set<number>>(new Set())
   const [menuParent, setMenuParent] = useState<Map<number, number | null>>(new Map())
   const [menuChildren, setMenuChildren] = useState<Map<number, number[]>>(new Map())
+  const [submitting, setSubmitting] = useState(false)
+  const [menuSubmitting, setMenuSubmitting] = useState(false)
+  const guard = useStaleGuard()
+  const detailGuard = useStaleGuard()
 
   const loadRefs = useCallback(async () => {
     try {
       const tree = await orgApi.tree()
       setOrgOptions(flattenOrgTree(Array.isArray(tree) ? tree : []))
     } catch {
+      toast.error('加载组织选项失败')
       setOrgOptions([])
     }
     try {
@@ -189,6 +208,7 @@ export default function RoleManage() {
         })),
       )
     } catch {
+      toast.error('加载店铺选项失败')
       try {
         const { rows } = await unwrapPage(shopApi.getShopPage({ current: 1, size: 500 }))
         setShopOptions(
@@ -198,16 +218,18 @@ export default function RoleManage() {
           })),
         )
       } catch {
+        toast.error('加载店铺分页选项失败')
         setShopOptions([])
       }
     }
-  }, [])
+  }, [toast])
 
   useEffect(() => {
     void loadRefs()
   }, [loadRefs])
 
   const load = useCallback(async () => {
+    const id = guard.nextId()
     setLoading(true)
     setError('')
     try {
@@ -220,14 +242,17 @@ export default function RoleManage() {
           status: statusQ,
         }),
       )
+      if (!guard.isCurrent(id)) return
       setList(rows)
       setTotal(t)
     } catch (e) {
+      if (!guard.isCurrent(id)) return
       setError(e instanceof Error ? e.message : '加载角色失败')
     } finally {
+      if (!guard.isCurrent(id)) return
       setLoading(false)
     }
-  }, [current, size, roleNameQ, roleCodeQ, statusQ, searchNonce])
+  }, [current, size, roleNameQ, roleCodeQ, statusQ, searchNonce, guard])
 
   useEffect(() => {
     void load()
@@ -241,18 +266,22 @@ export default function RoleManage() {
       setSelectedShopIds(new Set())
       return
     }
+    const id = detailGuard.nextId()
     void (async () => {
       try {
         const d = await roleApi.get(modal.row!.id!)
+        if (!detailGuard.isCurrent(id)) return
         const raw = d as RoleRow & { deptIds?: unknown }
         setSelectedOrgIds(new Set(parseIdArray(raw.orgIds ?? raw.deptIds)))
         setSelectedShopIds(new Set(parseIdArray(raw.shopIds)))
       } catch {
+        if (!detailGuard.isCurrent(id)) return
+        toast.error('加载角色详情失败')
         setSelectedOrgIds(new Set())
         setSelectedShopIds(new Set())
       }
     })()
-  }, [modal.open, modal.row?.id])
+  }, [modal.open, modal.row?.id, toast, detailGuard])
 
   const openEdit = (row: RoleRow | null) => {
     setFormErrors({})
@@ -296,6 +325,8 @@ export default function RoleManage() {
       body.orgIds = []
       body.shopIds = []
     }
+    if (submitting) return
+    setSubmitting(true)
     try {
       if (modal.row?.id != null) {
         await roleApi.update(modal.row.id, body)
@@ -303,9 +334,12 @@ export default function RoleManage() {
         await roleApi.create(body)
       }
       setModal({ open: false, row: null })
+      toast.success('角色已保存')
       await load()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '保存失败')
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -316,6 +350,7 @@ export default function RoleManage() {
     if (!ok) return
     try {
       await roleApi.remove(row.id)
+      toast.success('角色已删除')
       await load()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '删除失败')
@@ -408,11 +443,16 @@ export default function RoleManage() {
 
   const saveMenus = async () => {
     if (menuModal.roleId == null) return
+    if (menuSubmitting) return
+    setMenuSubmitting(true)
     try {
       await roleApi.setMenus(menuModal.roleId, [...checkedMenus])
+      toast.success('菜单权限已保存')
       setMenuModal({ open: false, roleId: null })
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '保存菜单权限失败')
+    } finally {
+      setMenuSubmitting(false)
     }
   }
 
@@ -435,6 +475,8 @@ export default function RoleManage() {
   }
 
   const handleSearch = () => {
+    setRoleNameQ(draft.roleName)
+    setRoleCodeQ(draft.roleCode)
     setCurrent(1)
     setSearchNonce((n) => n + 1)
   }
@@ -442,6 +484,7 @@ export default function RoleManage() {
   const handleReset = () => {
     setRoleNameQ('')
     setRoleCodeQ('')
+    setDraft({ roleName: '', roleCode: '' })
     setStatusQ(undefined)
     setCurrent(1)
     setSearchNonce((n) => n + 1)
@@ -477,8 +520,11 @@ export default function RoleManage() {
           <label className="text-[10px] font-black text-slate-400 uppercase">角色名称</label>
           <input
             placeholder="搜索名称"
-            value={roleNameQ}
-            onChange={(e) => setRoleNameQ(e.target.value)}
+            value={draft.roleName}
+            onChange={(e) => setDraft((prev) => ({ ...prev, roleName: e.target.value }))}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSearch()
+            }}
             className="px-3 py-2 rounded-xl bg-slate-50 ring-1 ring-slate-200 text-sm w-36"
           />
         </div>
@@ -486,8 +532,11 @@ export default function RoleManage() {
           <label className="text-[10px] font-black text-slate-400 uppercase">角色编码</label>
           <input
             placeholder="搜索编码"
-            value={roleCodeQ}
-            onChange={(e) => setRoleCodeQ(e.target.value)}
+            value={draft.roleCode}
+            onChange={(e) => setDraft((prev) => ({ ...prev, roleCode: e.target.value }))}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSearch()
+            }}
             className="px-3 py-2 rounded-xl bg-slate-50 ring-1 ring-slate-200 text-sm w-36"
           />
         </div>
@@ -506,7 +555,20 @@ export default function RoleManage() {
           </select>
         </div>
         <PermGate perms={[SYSTEM_PERMS.role.query]}>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
+            <select
+              value={size}
+              onChange={(e) => {
+                setSize(Number(e.target.value))
+                setCurrent(1)
+              }}
+              className="px-2 py-1 bg-white rounded-lg ring-1 ring-slate-200"
+            >
+              <option value={10}>10条/页</option>
+              <option value={20}>20条/页</option>
+              <option value={50}>50条/页</option>
+            </select>
+            <span>第 {current} / {Math.max(1, Math.ceil(total / size))} 页</span>
             <button
               type="button"
               onClick={handleSearch}
@@ -631,7 +693,7 @@ export default function RoleManage() {
             </button>
             <button
               type="button"
-              disabled={current * size >= total}
+              disabled={current >= Math.max(1, Math.ceil(total / size))}
               onClick={() => setCurrent((c) => c + 1)}
               className="px-3 py-1 rounded-lg bg-slate-100 font-bold disabled:opacity-40"
             >
@@ -794,9 +856,10 @@ export default function RoleManage() {
               <button
                 type="button"
                 onClick={() => void save()}
+                disabled={submitting}
                 className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold"
               >
-                保存
+                {submitting ? '保存中...' : '保存'}
               </button>
             </div>
       </Modal>
@@ -812,6 +875,43 @@ export default function RoleManage() {
               勾选后保存，将提交 <code className="text-indigo-600">PUT .../menus</code>{' '}
               与后端权限标识一致。
             </p>
+            <div className="flex items-center gap-3 mb-3 text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  const ids = collectAllMenuIds(menuTree)
+                  setMenuExpandedIds(new Set(ids))
+                }}
+                className="text-indigo-600 font-bold"
+              >
+                展开全部
+              </button>
+              <button
+                type="button"
+                onClick={() => setMenuExpandedIds(new Set())}
+                className="text-indigo-600 font-bold"
+              >
+                折叠全部
+              </button>
+              <span className="text-slate-400">|</span>
+              <button
+                type="button"
+                onClick={() => setCheckedMenus(new Set(collectAllMenuIds(menuTree)))}
+                className="text-indigo-600 font-bold"
+              >
+                全选
+              </button>
+              <button
+                type="button"
+                onClick={() => setCheckedMenus(new Set())}
+                className="text-indigo-600 font-bold"
+              >
+                全不选
+              </button>
+              <span className="ml-auto text-slate-500">
+                已选 {checkedMenus.size} / {collectAllMenuIds(menuTree).length} 项
+              </span>
+            </div>
             <div className="flex-1 overflow-y-auto border border-slate-100 rounded-xl p-2 max-h-[50vh]">
               {menuTree.length === 0 ? (
                 <div className="text-xs text-slate-500 p-3">暂无菜单树</div>
@@ -837,9 +937,10 @@ export default function RoleManage() {
               <button
                 type="button"
                 onClick={() => void saveMenus()}
+                disabled={menuSubmitting}
                 className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold"
               >
-                保存权限
+                {menuSubmitting ? '保存中...' : '保存权限'}
               </button>
             </div>
       </Modal>

@@ -1,6 +1,8 @@
 package com.nexus.common.web.auth;
 
+import com.nexus.common.context.DataScopeContext;
 import com.nexus.common.context.GatewayUserContext;
+import com.nexus.common.context.OrgContext;
 import com.nexus.common.context.TenantContext;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -21,6 +23,9 @@ public class InternalAuthInterceptor implements HandlerInterceptor {
     public static final String HEADER_USER_ID = "X-User-Id";
     public static final String HEADER_TENANT_ID = "X-Tenant-Id";
     public static final String HEADER_USERNAME = "X-Username";
+    public static final String HEADER_ORG_ID = "X-Org-Id";
+    public static final String HEADER_SHOP_ID = "X-Shop-Id";
+    public static final String HEADER_DATA_SCOPE = "X-Data-Scope";
 
     @Override
     public boolean preHandle(@NonNull HttpServletRequest request, @NonNull HttpServletResponse response,
@@ -68,6 +73,34 @@ public class InternalAuthInterceptor implements HandlerInterceptor {
         if (StringUtils.hasText(xu)) {
             GatewayUserContext.setUsername(xu.trim());
         }
+
+        String shopIdStr = request.getHeader(HEADER_SHOP_ID);
+        if (StringUtils.hasText(shopIdStr) && OrgContext.getShopId() == null) {
+            try {
+                OrgContext.setShopId(Long.parseLong(shopIdStr.trim()));
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        String orgIdStr = request.getHeader(HEADER_ORG_ID);
+        if (StringUtils.hasText(orgIdStr) && OrgContext.getOrgId() == null) {
+            try {
+                OrgContext.setOrgId(Long.parseLong(orgIdStr.trim()));
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        String dataScopeStr = request.getHeader(HEADER_DATA_SCOPE);
+        if (StringUtils.hasText(dataScopeStr) && DataScopeContext.getDataScope() == null) {
+            try {
+                int ds = Integer.parseInt(dataScopeStr.trim());
+                DataScopeContext.setDataScope(ds);
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        DataScopeContext.setUserId(uid);
+        if (OrgContext.getOrgId() != null) {
+            DataScopeContext.setDeptId(OrgContext.getOrgId());
+        }
+
         return true;
     }
 
@@ -77,6 +110,8 @@ public class InternalAuthInterceptor implements HandlerInterceptor {
         // 清理 ThreadLocal，防止内存泄漏
         TenantContext.clear();
         GatewayUserContext.clear();
+        OrgContext.clear();
+        DataScopeContext.clear();
     }
 
     private static boolean isExcluded(String path) {

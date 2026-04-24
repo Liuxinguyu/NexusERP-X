@@ -92,7 +92,8 @@ public class OaAttendanceApplicationService {
     public void deleteRule(Long id) {
         Long tenantId = requireTenantId();
         OaAttendanceRule r = ruleMapper.selectById(id);
-        if (r == null || !Objects.equals(r.getTenantId(), tenantId)) {
+        if (r == null || !Objects.equals(r.getTenantId(), tenantId)
+                || (r.getDelFlag() != null && r.getDelFlag() == 1)) {
             throw new BusinessException(ResultCode.NOT_FOUND, "规则不存在");
         }
         ruleMapper.deleteById(id);
@@ -116,6 +117,10 @@ public class OaAttendanceApplicationService {
 
         OaAttendanceRule rule = getActiveRule(tenantId);
         LocalTime currentTime = now.toLocalTime();
+
+        if (!"in".equals(req.getType()) && !"out".equals(req.getType())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "打卡类型仅支持 in（上班）或 out（下班）");
+        }
 
         if ("in".equals(req.getType())) {
             if (record != null && record.getCheckInTime() != null) {
@@ -152,11 +157,12 @@ public class OaAttendanceApplicationService {
                 long minutes = ChronoUnit.MINUTES.between(record.getCheckInTime(), now);
                 record.setWorkMinutes((int) minutes);
             }
-            // 判断是否早退
             if (rule != null && currentTime.isBefore(rule.getCheckOutStart())) {
-                record.setStatus(STATUS_EARLY); // 早退
-            } else if (record.getStatus() == STATUS_LATE) {
-                record.setStatus(STATUS_NORMAL); // 有迟到但正常下班，合并为正常
+                if (record.getStatus() != null && record.getStatus() == STATUS_LATE) {
+                    record.setStatus(STATUS_LATE);
+                } else {
+                    record.setStatus(STATUS_EARLY);
+                }
             }
             recordMapper.updateById(record);
         }
@@ -246,7 +252,11 @@ public class OaAttendanceApplicationService {
     @Transactional(rollbackFor = Exception.class)
     public void submitLeave(Long leaveId) {
         Long tenantId = requireTenantId();
+        Long userId = requireUserId();
         OaLeave leave = loadLeave(leaveId, tenantId);
+        if (!Objects.equals(leave.getUserId(), userId)) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "仅申请人本人可操作");
+        }
         if (leave.getStatus() != LEAVE_DRAFT) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "仅草稿状态可提交");
         }
@@ -259,6 +269,12 @@ public class OaAttendanceApplicationService {
         Long tenantId = requireTenantId();
         Long approverId = requireUserId();
         OaLeave leave = loadLeave(leaveId, tenantId);
+        if (leave.getApproverUserId() != null && !Objects.equals(leave.getApproverUserId(), approverId)) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "越权操作：您无权审批该单据");
+        }
+        if (leave.getApproverUserId() == null) {
+            leave.setApproverUserId(approverId);
+        }
         if (leave.getStatus() != LEAVE_PENDING) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "仅待审批状态可审批");
         }
@@ -272,7 +288,11 @@ public class OaAttendanceApplicationService {
     @Transactional(rollbackFor = Exception.class)
     public void deleteLeave(Long leaveId) {
         Long tenantId = requireTenantId();
+        Long userId = requireUserId();
         OaLeave leave = loadLeave(leaveId, tenantId);
+        if (!Objects.equals(leave.getUserId(), userId)) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "仅申请人本人可操作");
+        }
         if (leave.getStatus() != LEAVE_DRAFT) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "仅草稿状态可删除");
         }
@@ -316,7 +336,11 @@ public class OaAttendanceApplicationService {
     @Transactional(rollbackFor = Exception.class)
     public void submitOvertime(Long overtimeId) {
         Long tenantId = requireTenantId();
+        Long userId = requireUserId();
         OaOvertime ot = loadOvertime(overtimeId, tenantId);
+        if (!Objects.equals(ot.getUserId(), userId)) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "仅申请人本人可操作");
+        }
         if (ot.getStatus() != OT_DRAFT) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "仅草稿状态可提交");
         }
@@ -329,6 +353,12 @@ public class OaAttendanceApplicationService {
         Long tenantId = requireTenantId();
         Long approverId = requireUserId();
         OaOvertime ot = loadOvertime(overtimeId, tenantId);
+        if (ot.getApproverUserId() != null && !Objects.equals(ot.getApproverUserId(), approverId)) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "越权操作：您无权审批该单据");
+        }
+        if (ot.getApproverUserId() == null) {
+            ot.setApproverUserId(approverId);
+        }
         if (ot.getStatus() != OT_PENDING) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "仅待审批状态可审批");
         }
@@ -342,7 +372,11 @@ public class OaAttendanceApplicationService {
     @Transactional(rollbackFor = Exception.class)
     public void deleteOvertime(Long overtimeId) {
         Long tenantId = requireTenantId();
+        Long userId = requireUserId();
         OaOvertime ot = loadOvertime(overtimeId, tenantId);
+        if (!Objects.equals(ot.getUserId(), userId)) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "仅申请人本人可操作");
+        }
         if (ot.getStatus() != OT_DRAFT) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "仅草稿状态可删除");
         }
@@ -381,7 +415,22 @@ public class OaAttendanceApplicationService {
         stat.setEarlyLeaveDays(earlyDays);
         stat.setAbsentDays(absentDays);
         stat.setMissingCardDays(missingDays);
-        stat.setOvertimeHours(0);
+
+        List<OaOvertime> approvedOvertimes = overtimeMapper.selectList(
+                new LambdaQueryWrapper<OaOvertime>()
+                        .eq(OaOvertime::getTenantId, tenantId)
+                        .eq(OaOvertime::getUserId, targetUserId)
+                        .eq(OaOvertime::getDelFlag, 0)
+                        .eq(OaOvertime::getStatus, OT_APPROVED)
+                        .ge(OaOvertime::getStartTime, start.atStartOfDay())
+                        .le(OaOvertime::getStartTime, end.atTime(23, 59, 59)));
+        BigDecimal totalOvertimeHours = BigDecimal.ZERO;
+        for (OaOvertime ot : approvedOvertimes) {
+            if (ot.getHours() != null) {
+                totalOvertimeHours = totalOvertimeHours.add(ot.getHours());
+            }
+        }
+        stat.setOvertimeHours(totalOvertimeHours);
         return stat;
     }
 
@@ -498,7 +547,7 @@ public class OaAttendanceApplicationService {
         vo.setHours(o.getHours());
         vo.setReason(o.getReason());
         vo.setStatus(o.getStatus());
-        String label = switch (o.getStatus()) {
+        String label = o.getStatus() == null ? "未知" : switch (o.getStatus()) {
             case OT_DRAFT -> "草稿";
             case OT_PENDING -> "待审批";
             case OT_APPROVED -> "已通过";

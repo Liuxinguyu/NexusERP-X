@@ -3,6 +3,7 @@ package com.nexus.wage.domain.model;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.annotation.Version;
 import com.nexus.common.domain.model.BaseTenantEntity;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -32,4 +33,7 @@ public class WageMonthlySlip extends BaseTenantEntity {
 
     /** 0 待确认 1 已发放 */
     private Integer status;
+
+    @Version
+    private Integer version;
 }

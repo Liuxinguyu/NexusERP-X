@@ -11,7 +11,6 @@
     <modules>
         <module>nexus-common</module>
         <module>nexus-gateway</module>
-        <module>nexus-auth</module>
         <module>nexus-system</module>
         <module>nexus-erp</module>
         <module>nexus-oa</module>

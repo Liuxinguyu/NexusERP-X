@@ -3,6 +3,10 @@ import { approvalApi } from '../../api/oa-crud'
 import { pickPageRecords } from '../../lib/http-helpers'
 import { useToast } from '../../components/Toast'
 import { useConfirm } from '../../components/ConfirmDialog'
+import { PermGate, usePermissions } from '../../context/PermissionsContext'
+import { OA_PERMS } from '../../lib/business-perms'
+import { formatDateTime } from '../../lib/format'
+import { useStaleGuard } from '../../hooks/useStaleGuard'
 import type { ApprovalTaskRow } from '../../types/oa-crud'
 
 type Tab = '待我审批' | '我发起的'
@@ -10,42 +14,58 @@ type Tab = '待我审批' | '我发起的'
 export default function ApprovalCenter() {
   const toast = useToast()
   const confirm = useConfirm()
+  const { can } = usePermissions()
   const [tab, setTab] = useState<Tab>('待我审批')
   const [list, setList] = useState<ApprovalTaskRow[]>([])
   const [total, setTotal] = useState(0)
   const [current, setCurrent] = useState(1)
   const size = 10
   const [loading, setLoading] = useState(false)
+  const [actionSubmitting, setActionSubmitting] = useState(false)
+  const guard = useStaleGuard()
 
   const loadData = useCallback(async () => {
+    const id = guard.nextId()
     setLoading(true)
     try {
       const api = tab === '待我审批' ? approvalApi.myApprove : approvalApi.myInitiated
       const res = await api({ current, size })
+      if (!guard.isCurrent(id)) return
       setList(pickPageRecords(res)); setTotal(res.total ?? 0)
     } catch (e) {
+      if (!guard.isCurrent(id)) return
       toast.error(e instanceof Error ? e.message : '加载审批数据失败')
       setList([])
       setTotal(0)
     }
-    finally { setLoading(false) }
-  }, [current, tab])
+    finally {
+      if (!guard.isCurrent(id)) return
+      setLoading(false)
+    }
+  }, [current, tab, guard, toast])
 
   useEffect(() => { void loadData() }, [loadData])
 
   const handleAction = async (id: number, action: 'approve' | 'reject') => {
+    if (actionSubmitting) return
     const ok = await confirm({
       title: action === 'approve' ? '审批通过' : '驳回申请',
       message: action === 'approve' ? '确认通过此审批？' : '确认驳回此审批？',
       danger: action === 'reject',
     })
     if (!ok) return
+    setActionSubmitting(true)
     try {
       if (action === 'approve') await approvalApi.approve(id)
       else await approvalApi.reject(id)
       toast.success(action === 'approve' ? '已通过' : '已驳回')
       void loadData()
     } catch (e) { toast.error(e instanceof Error ? e.message : '操作失败') }
+    finally { setActionSubmitting(false) }
+  }
+
+  if (!can(OA_PERMS.approval.list)) {
+    return <div className="p-8 text-center text-slate-400 font-bold">暂无权限访问</div>
   }
 
   return (
@@ -84,13 +104,17 @@ export default function ApprovalCenter() {
                     'bg-rose-50 text-rose-600'
                   }`}>{String(row.status) === '0' ? '待审批' : String(row.status) === '1' ? '已通过' : '已驳回'}</span>
                 </td>
-                <td className="px-8 py-5 text-slate-400 text-xs">{row.createTime ?? '-'}</td>
+                <td className="px-8 py-5 text-slate-400 text-xs">{formatDateTime(row.createTime)}</td>
                 {tab === '待我审批' && (
                   <td className="px-8 py-5 text-right">
                     {String(row.status) === '0' && (
                       <div className="flex gap-3 justify-end">
-                        <button onClick={() => handleAction(row.id as number, 'approve')} className="text-emerald-600 text-xs font-black hover:underline">通过</button>
-                        <button onClick={() => handleAction(row.id as number, 'reject')} className="text-rose-500 text-xs font-black hover:underline">驳回</button>
+                        <PermGate perms={[OA_PERMS.approval.approve]}>
+                          <button onClick={() => void handleAction(row.id as number, 'approve')} disabled={actionSubmitting} className="text-emerald-600 text-xs font-black hover:underline disabled:opacity-60">通过</button>
+                        </PermGate>
+                        <PermGate perms={[OA_PERMS.approval.approve]}>
+                          <button onClick={() => void handleAction(row.id as number, 'reject')} disabled={actionSubmitting} className="text-rose-500 text-xs font-black hover:underline disabled:opacity-60">驳回</button>
+                        </PermGate>
                       </div>
                     )}
                   </td>

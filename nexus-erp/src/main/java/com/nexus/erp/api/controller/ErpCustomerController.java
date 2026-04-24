@@ -8,6 +8,7 @@ import com.nexus.erp.application.service.ErpCustomerApplicationService;
 import com.nexus.erp.domain.model.ErpCustomer;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -27,6 +28,7 @@ public class ErpCustomerController {
     private final ErpCustomerApplicationService customerApplicationService;
 
     @GetMapping("/page")
+    @PreAuthorize("@ss.hasPermi('erp:customer:list')")
     public Result<IPage<ErpCustomer>> page(
             @RequestParam(defaultValue = "1") long current,
             @RequestParam(defaultValue = "10") long size,
@@ -36,12 +38,14 @@ public class ErpCustomerController {
     }
 
     @OpLog(module = "客户管理", type = "新增")
+    @PreAuthorize("@ss.hasPermi('erp:customer:add')")
     @PostMapping
     public Result<Long> create(@Valid @RequestBody ErpDtos.CustomerCreateRequest req) {
         return Result.ok(customerApplicationService.create(req));
     }
 
     @OpLog(module = "客户管理", type = "修改")
+    @PreAuthorize("@ss.hasPermi('erp:customer:edit')")
     @PutMapping("/{id}")
     public Result<Void> update(@PathVariable Long id, @Valid @RequestBody ErpDtos.CustomerUpdateRequest req) {
         customerApplicationService.update(id, req);

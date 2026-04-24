@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS fin_payable (
   UNIQUE KEY uk_tenant_no (tenant_id, payable_no),
   KEY idx_supplier (tenant_id, supplier_id),
   KEY idx_status (tenant_id, status),
-  KEY idx_source (tenant_id, source_type, source_id)
+  UNIQUE KEY uk_payable_source (tenant_id, source_type, source_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 付款记录表

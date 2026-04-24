@@ -166,13 +166,13 @@ export const operLogApi = {
 }
 
 export const loginLogApi = {
-  page: (params: { pageNum: number; pageSize: number; username?: string; status?: number }) =>
+  page: (params: { current: number; size: number; username?: string; status?: number }) =>
     httpGet<PageResult<LoginLogRow>>('/system/login-log/page', { params }),
   clean: () => httpDelete<unknown>('/system/login-log/clean'),
 }
 
 export const onlineUserApi = {
-  page: (params: { pageNum: number; pageSize: number; username?: string; ip?: string }) =>
+  page: (params: { current: number; size: number; username?: string; ip?: string }) =>
     httpGet<PageResult<OnlineUserRow>>('/system/online-users', { params }),
   kick: (userId: number) => httpDelete<unknown>(`/system/online-users/${userId}`),
 }

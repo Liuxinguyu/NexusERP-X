@@ -1,5 +1,6 @@
 package com.nexus.gateway.filter;
 
+import com.nexus.common.context.NexusRequestHeaders;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
@@ -18,8 +19,8 @@ import java.util.stream.Collectors;
  * 下游上下文转发过滤器。
  *
  * <p>【安全说明】
- * 仅转发网关层自己生成的请求头（如 X-User-Id、X-Tenant-Id 等），这些头由
- * {@link AuthenticationGlobalFilter} 在 JWT 验证后写入。
+ * 仅转发 {@link AuthenticationGlobalFilter} 在校验 JWT 与 Redis 在线态后写入的请求头
+ * （身份、租户、数据范围、可访问店铺/组织 ID 列表等），与 {@link NexusRequestHeaders} 命名一致。
  * <p>
  * 绝不再将用户传入的请求头（如 tenant-id、user-id 等小写变体）转发给下游服务，
  * 以防止 Header 伪造攻击（攻击者通过传入伪造的租户/用户ID 绕过数据隔离）。
@@ -34,18 +35,15 @@ public class DownstreamContextForwardingFilter implements GlobalFilter, Ordered 
      * 这些头由 {@link AuthenticationGlobalFilter} 在 JWT 验证后写入，下游服务可以安全信任。
      */
     private static final List<String> FORWARD_HEADER_NAMES = List.of(
-            // 核心身份上下文
             "X-User-Id",
-            "X-Tenant-Id",
+            NexusRequestHeaders.TENANT_ID,
             "X-Username",
             "X-Client-Type",
-            "X-Org-Id",
-            "X-Shop-Id",
-            // 数据权限范围
-            "X-Data-Scope",
-            // 可访问的店铺/组织列表（由网关聚合）
-            "X-Accessible-Shop-Ids",
-            "X-Accessible-Org-Ids"
+            NexusRequestHeaders.ORG_ID,
+            NexusRequestHeaders.SHOP_ID,
+            NexusRequestHeaders.DATA_SCOPE,
+            NexusRequestHeaders.ACCESSIBLE_SHOP_IDS,
+            NexusRequestHeaders.ACCESSIBLE_ORG_IDS
     );
 
     /** 是否启用下游 Header 转发（测试场景可关闭） */
@@ -68,7 +66,13 @@ public class DownstreamContextForwardingFilter implements GlobalFilter, Ordered 
                                 .filter(StringUtils::hasText)
                                 .collect(Collectors.toList());
                         if (!values.isEmpty()) {
-                            h.put(name, values);
+                            // 逗号分隔的 ID 列表在 HttpHeaders 中可能被拆成多元素；下游需单一字符串时合并
+                            if (NexusRequestHeaders.ACCESSIBLE_SHOP_IDS.equals(name)
+                                    || NexusRequestHeaders.ACCESSIBLE_ORG_IDS.equals(name)) {
+                                h.set(name, String.join(",", values));
+                            } else {
+                                h.put(name, values);
+                            }
                         }
                     }
                 })

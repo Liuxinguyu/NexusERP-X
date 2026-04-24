@@ -2,6 +2,7 @@ package com.nexus.erp.application.dto;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
@@ -37,9 +38,10 @@ public final class ErpOrderDtos {
         @NotNull
         private Long productId;
         @NotNull
-        @Min(1)
+        @Min(value = 1, message = "商品数量必须大于0")
         private Integer quantity;
         @NotNull
+        @DecimalMin(value = "0", inclusive = false, message = "单价必须大于0")
         private BigDecimal unitPrice;
     }
 
@@ -65,9 +67,10 @@ public final class ErpOrderDtos {
         @NotNull
         private Long productId;
         @NotNull
-        @Min(1)
+        @Min(value = 1, message = "商品数量必须大于0")
         private Integer quantity;
         @NotNull
+        @DecimalMin(value = "0", inclusive = false, message = "单价必须大于0")
         private BigDecimal unitPrice;
     }
 }

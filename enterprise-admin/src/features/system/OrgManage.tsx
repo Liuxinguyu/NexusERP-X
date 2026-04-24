@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { orgApi } from '../../api/system-crud'
 import type { OrgNode, OrgCreateRequest } from '../../types/system-crud'
-import { PermGate } from '../../context/PermissionsContext'
+import { PermGate, usePermissions } from '../../context/PermissionsContext'
 import { SYSTEM_PERMS } from '../../lib/system-perms'
 import { useToast } from '../../components/Toast'
 import { useConfirm } from '../../components/ConfirmDialog'
 import Modal from '../../components/Modal'
+import { useStaleGuard } from '../../hooks/useStaleGuard'
 
 interface FlatOrgRow extends OrgNode {
   depth: number
@@ -44,6 +45,19 @@ function flattenForSelect(
   return out
 }
 
+function collectDescendantIds(nodes: OrgNode[], targetId: number): Set<number> {
+  const result = new Set<number>()
+  const walk = (arr: OrgNode[], inTargetBranch: boolean) => {
+    for (const n of arr) {
+      const hit = inTargetBranch || n.id === targetId
+      if (hit) result.add(n.id)
+      walk(n.children ?? [], hit)
+    }
+  }
+  walk(nodes, false)
+  return result
+}
+
 interface OrgFormState {
   parentId: number
   orgCode: string
@@ -65,6 +79,7 @@ const emptyForm: OrgFormState = {
 export default function OrgManage() {
   const toast = useToast()
   const confirm = useConfirm()
+  const { can } = usePermissions()
 
   const [tree, setTree] = useState<OrgNode[]>([])
   const [loading, setLoading] = useState(false)
@@ -77,20 +92,25 @@ export default function OrgManage() {
   })
   const [form, setForm] = useState<OrgFormState>({ ...emptyForm })
   const [submitting, setSubmitting] = useState(false)
+  const guard = useStaleGuard()
 
   // ================= Load =================
 
   const loadTree = useCallback(async () => {
+    const id = guard.nextId()
     setLoading(true)
     try {
       const data = await orgApi.tree()
+      if (!guard.isCurrent(id)) return
       setTree(Array.isArray(data) ? data : [])
     } catch (e) {
+      if (!guard.isCurrent(id)) return
       toast.error(e instanceof Error ? e.message : '加载组织树失败')
     } finally {
+      if (!guard.isCurrent(id)) return
       setLoading(false)
     }
-  }, [])
+  }, [guard, toast])
 
   useEffect(() => {
     void loadTree()
@@ -145,6 +165,7 @@ export default function OrgManage() {
   const submitForm = async () => {
     if (!form.orgName.trim()) { toast.error('组织名称不能为空'); return }
     if (!form.orgCode.trim()) { toast.error('组织编码不能为空'); return }
+    if (submitting) return
     setSubmitting(true)
     try {
       if (modal.isEdit && modal.id != null) {
@@ -183,14 +204,33 @@ export default function OrgManage() {
   // ================= Derived =================
 
   const flatRows = flattenTree(tree, 0, expandedIds)
-  const filteredRows = orgNameQ.trim()
-    ? flatRows.filter((r) =>
-        String(r.orgName ?? '')
-          .toLowerCase()
-          .includes(orgNameQ.trim().toLowerCase()),
-      )
-    : flatRows
-  const parentOptions = flattenForSelect(tree)
+  const keyword = orgNameQ.trim().toLowerCase()
+  const filteredRows = (() => {
+    if (!keyword) return flatRows
+    const matchExpanded = new Set<number>()
+    const walk = (node: OrgNode, ancestors: number[]): void => {
+      const hit = String(node.orgName ?? '').toLowerCase().includes(keyword)
+      if (hit) ancestors.forEach((id) => matchExpanded.add(id))
+      ;(node.children ?? []).forEach((child) => walk(child, [...ancestors, node.id]))
+    }
+    tree.forEach((n) => walk(n, []))
+    const merged = new Set([...expandedIds, ...matchExpanded])
+    return flattenTree(tree, 0, merged).filter((r) => {
+      if (String(r.orgName ?? '').toLowerCase().includes(keyword)) return true
+      return matchExpanded.has(r.id)
+    })
+  })()
+  const forbiddenParentIds =
+    modal.isEdit && modal.id != null ? collectDescendantIds(tree, modal.id) : new Set<number>()
+  const parentOptions = flattenForSelect(tree).filter((o) => !forbiddenParentIds.has(o.id))
+
+  if (!can(SYSTEM_PERMS.org.query)) {
+    return (
+      <div className="bg-white p-10 rounded-[2.5rem] shadow-sm ring-1 ring-slate-100 text-center text-slate-500 font-bold">
+        无权限访问：组织管理
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-4 animate-in fade-in duration-500">

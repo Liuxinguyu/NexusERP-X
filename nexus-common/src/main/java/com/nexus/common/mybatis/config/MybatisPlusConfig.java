@@ -3,6 +3,7 @@ package com.nexus.common.mybatis.config;
 import com.baomidou.mybatisplus.annotation.DbType;
 import com.baomidou.mybatisplus.core.handlers.MetaObjectHandler;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
+import com.baomidou.mybatisplus.extension.plugins.inner.OptimisticLockerInnerInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.TenantLineInnerInterceptor;
 import com.nexus.common.mybatis.datapermission.DataScopeInterceptor;
@@ -26,10 +27,13 @@ public class MybatisPlusConfig {
         tenant.setTenantLineHandler(tenantLineHandler);
         interceptor.addInnerInterceptor(tenant);
 
+        interceptor.addInnerInterceptor(new OptimisticLockerInnerInterceptor());
+
         interceptor.addInnerInterceptor(dataScopeInterceptor);
 
         PaginationInnerInterceptor pagination = new PaginationInnerInterceptor(DbType.MYSQL);
         pagination.setOverflow(false);
+        pagination.setMaxLimit(1000L);
         interceptor.addInnerInterceptor(pagination);
         return interceptor;
     }

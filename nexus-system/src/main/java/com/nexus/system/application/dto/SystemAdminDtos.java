@@ -107,6 +107,14 @@ public final class SystemAdminDtos {
     }
 
     @Data
+    public static class UserResetPasswordRequest implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        @NotBlank
+        private String newPassword;
+    }
+
+    @Data
     public static class UserShopRoleItem implements Serializable {
         @Serial
         private static final long serialVersionUID = 1L;
@@ -134,8 +142,48 @@ public final class SystemAdminDtos {
         private String menuName;
         private String path;
         private String component;
+        private String perms;
+        private String icon;
         private Integer sort;
+        private Integer visible;
+        private Integer status;
         private List<MenuTreeNode> children;
+    }
+
+    @Data
+    public static class MenuCreateRequest implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        private Long parentId;
+        @NotBlank
+        private String menuName;
+        private String menuType;
+        private String path;
+        private String component;
+        private String perms;
+        private String icon;
+        private Integer sort;
+        private Integer visible;
+        private Integer status;
+    }
+
+    @Data
+    public static class MenuUpdateRequest implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        @NotNull
+        private Long id;
+        private Long parentId;
+        @NotBlank
+        private String menuName;
+        private String menuType;
+        private String path;
+        private String component;
+        private String perms;
+        private String icon;
+        private Integer sort;
+        private Integer visible;
+        private Integer status;
     }
 
     @Data
@@ -179,5 +227,52 @@ public final class SystemAdminDtos {
         private String noticeType;
         /** 公告过期时间，可为空（永不过期） */
         private LocalDateTime expireTime;
+    }
+
+    @Data
+    public static class ConfigCreateRequest implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        @NotBlank
+        private String configName;
+        @NotBlank
+        private String configKey;
+        private String configValue;
+        private String configType;
+        private String remark;
+    }
+
+    @Data
+    public static class ConfigUpdateRequest implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        private String configName;
+        private String configValue;
+        private String configType;
+        private String remark;
+    }
+
+    @Data
+    public static class PostCreateRequest implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        @NotBlank
+        private String postCode;
+        @NotBlank
+        private String postName;
+        private Integer sort;
+        private Integer status;
+        private String remark;
+    }
+
+    @Data
+    public static class PostUpdateRequest implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        private String postCode;
+        private String postName;
+        private Integer sort;
+        private Integer status;
+        private String remark;
     }
 }

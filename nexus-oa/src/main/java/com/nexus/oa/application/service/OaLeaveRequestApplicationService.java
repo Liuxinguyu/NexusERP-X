@@ -32,10 +32,15 @@ public class OaLeaveRequestApplicationService {
 
     public IPage<OaLeaveRequest> page(long current, long size, Integer status) {
         Long tenantId = requireTenantId();
+        Long userId = requireUserId();
         Page<OaLeaveRequest> p = new Page<>(current, size);
         LambdaQueryWrapper<OaLeaveRequest> w = new LambdaQueryWrapper<OaLeaveRequest>()
                 .eq(OaLeaveRequest::getTenantId, tenantId)
                 .eq(OaLeaveRequest::getDelFlag, 0)
+                .and(wr -> wr
+                        .eq(OaLeaveRequest::getApplicantUserId, userId)
+                        .or()
+                        .eq(OaLeaveRequest::getApproverUserId, userId))
                 .eq(status != null, OaLeaveRequest::getStatus, status)
                 .orderByDesc(OaLeaveRequest::getId);
         return leaveRequestMapper.selectPage(p, w);
@@ -54,6 +59,21 @@ public class OaLeaveRequestApplicationService {
     public Long create(OaDtos.LeaveRequestCreateRequest req) {
         Long tenantId = requireTenantId();
         Long uid = requireUserId();
+
+        // 时间重叠防线：仅校验审批中/已通过的单据，驳回或其他状态不计入冲突
+        Long overlapCount = leaveRequestMapper.selectCount(new LambdaQueryWrapper<OaLeaveRequest>()
+                .eq(OaLeaveRequest::getTenantId, tenantId)
+                .eq(OaLeaveRequest::getDelFlag, 0)
+                .eq(OaLeaveRequest::getApplicantUserId, uid)
+                .in(OaLeaveRequest::getStatus,
+                        OaLeaveRequestStatus.PENDING.getCode(),
+                        OaLeaveRequestStatus.APPROVED.getCode())
+                .le(OaLeaveRequest::getStartTime, req.getEndTime())
+                .ge(OaLeaveRequest::getEndTime, req.getStartTime()));
+        if (overlapCount != null && overlapCount > 0) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "您申请的请假时间与已有单据存在重叠冲突，请检查");
+        }
+
         OaLeaveRequest e = new OaLeaveRequest();
         e.setTenantId(tenantId);
         e.setApplicantUserId(uid);

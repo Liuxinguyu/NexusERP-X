@@ -3,9 +3,13 @@ package com.nexus.system.application.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.nexus.common.context.TenantContext;
+import com.nexus.common.core.domain.ResultCode;
+import com.nexus.common.exception.BusinessException;
 import com.nexus.system.domain.model.SysLoginLog;
 import com.nexus.system.infrastructure.mapper.SysLoginLogMapper;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 
@@ -38,8 +42,25 @@ public class SysLoginLogApplicationService {
         loginLogMapper.insert(row);
     }
 
-    public IPage<SysLoginLog> page(long pageNum, long pageSize) {
+    public IPage<SysLoginLog> page(long pageNum, long pageSize, String username, Integer status) {
+        Long tenantId = TenantContext.getTenantId();
+        if (tenantId == null) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "缺少租户上下文");
+        }
         return loginLogMapper.selectPage(new Page<>(pageNum, pageSize),
-                new LambdaQueryWrapper<SysLoginLog>().orderByDesc(SysLoginLog::getCreateTime));
+                new LambdaQueryWrapper<SysLoginLog>()
+                        .eq(SysLoginLog::getTenantId, tenantId)
+                        .like(StringUtils.hasText(username), SysLoginLog::getUsername, username)
+                        .eq(status != null, SysLoginLog::getStatus, status)
+                        .orderByDesc(SysLoginLog::getCreateTime));
+    }
+
+    public void cleanByTenant() {
+        Long tenantId = TenantContext.getTenantId();
+        if (tenantId == null) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "缺少租户上下文");
+        }
+        loginLogMapper.delete(new LambdaQueryWrapper<SysLoginLog>()
+                .eq(SysLoginLog::getTenantId, tenantId));
     }
 }

@@ -40,11 +40,13 @@ public class SysShopController {
         return Result.ok(shopApplicationService.page(current, size, shopName, orgId));
     }
 
+    @PreAuthorize("@ss.hasPermi('system:shop:list')")
     @GetMapping("/options")
     public Result<List<SystemAdminDtos.ShopOption>> options() {
         return Result.ok(shopApplicationService.listOptions());
     }
 
+    @PreAuthorize("@ss.hasPermi('system:shop:list')")
     @GetMapping("/detail/{id}")
     public Result<SysShop> getById(@PathVariable Long id) {
         return Result.ok(shopApplicationService.getById(id));
@@ -67,6 +69,7 @@ public class SysShopController {
 
     @OpLog(module = "店铺管理", type = "状态变更")
     @PutMapping("/{id}/status")
+    @PreAuthorize("@ss.hasPermi('system:shop:edit')")
     public Result<Void> status(@PathVariable Long id, @Valid @RequestBody SystemAdminDtos.ShopStatusRequest req) {
         shopApplicationService.updateStatus(id, req);
         return Result.ok();

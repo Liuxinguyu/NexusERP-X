@@ -7,6 +7,8 @@ import com.nexus.common.context.TenantContext;
 import com.nexus.common.security.NexusPrincipal;
 import com.nexus.common.security.config.NexusSecurityProperties;
 import com.nexus.common.security.event.JwtTokenAuthenticatedEvent;
+import com.nexus.common.utils.HttpRequestUtils;
+import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -23,6 +25,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.Date;
 
 /**
  * 解析 JWT，并将租户、当前组织/店铺、数据权限写入 ThreadLocal（覆盖请求头中的默认值，防止伪造）。
@@ -37,15 +40,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final NexusSecurityProperties securityProperties;
     private final ApplicationEventPublisher eventPublisher;
     private final OnlineTokenValidator onlineTokenValidator;
+    private final JwtInvalidBeforeStore invalidBeforeStore;
 
     public JwtAuthenticationFilter(JwtTokenProvider jwtTokenProvider,
                                    NexusSecurityProperties securityProperties,
                                    ApplicationEventPublisher eventPublisher,
-                                   @org.springframework.lang.Nullable OnlineTokenValidator onlineTokenValidator) {
+                                   @org.springframework.lang.Nullable OnlineTokenValidator onlineTokenValidator,
+                                   @org.springframework.lang.Nullable JwtInvalidBeforeStore invalidBeforeStore) {
         this.jwtTokenProvider = jwtTokenProvider;
         this.securityProperties = securityProperties;
         this.eventPublisher = eventPublisher;
         this.onlineTokenValidator = onlineTokenValidator;
+        this.invalidBeforeStore = invalidBeforeStore;
     }
 
     @Override
@@ -60,16 +66,40 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         String raw = header.substring(jwt.getTokenPrefix().length()).trim();
         try {
-            NexusPrincipal principal = jwtTokenProvider.parseToken(raw);
-
-            // 若存在在线会话校验器，检查 token 是否仍在白名单中（未被注销/强退）
-            if (onlineTokenValidator != null && !onlineTokenValidator.isTokenOnline(raw)) {
-                SecurityContextHolder.clearContext();
-                log.warn("Token 已失效（已注销或被强退），请求被拒绝");
-                filterChain.doFilter(request, response);
+            // ---- 1. 解析 JWT（仅此阶段的异常视为 401） ----
+            Claims claims;
+            NexusPrincipal principal;
+            try {
+                claims = jwtTokenProvider.parseTokenClaims(raw);
+                principal = jwtTokenProvider.parseToken(claims);
+            } catch (Exception ex) {
+                if (!response.isCommitted()) {
+                    SecurityContextHolder.clearContext();
+                    log.warn("JWT 解析失败，请求被拒绝：{}", ex.getMessage());
+                    writeUnauthorized(response);
+                }
                 return;
             }
 
+            String jti = claims.getId();
+
+            // 若存在在线会话校验器，检查 token 是否仍在白名单中（未被注销/强退）
+            if (onlineTokenValidator != null && !onlineTokenValidator.isTokenOnline(jti)) {
+                SecurityContextHolder.clearContext();
+                log.warn("Token 已失效（已注销或被强退），请求被拒绝");
+                writeUnauthorized(response);
+                return;
+            }
+
+            // Invalid-Before 校验：状态变更后，旧 token 一律失效
+            if (isInvalidatedByTimestamp(principal.getUserId(), claims.getIssuedAt())) {
+                SecurityContextHolder.clearContext();
+                log.warn("Token 已失效（用户状态变更后旧 token 被阻断），请求被拒绝");
+                writeUnauthorized(response);
+                return;
+            }
+
+            // ---- 2. 写入 ThreadLocal 上下文 ----
             if (principal.getTenantId() != null) {
                 TenantContext.setTenantId(principal.getTenantId());
             }
@@ -77,9 +107,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             GatewayUserContext.setUsername(principal.getUsername());
             OrgContext.setOrgId(principal.getOrgId());
             OrgContext.setShopId(principal.getShopId());
-            if (principal.getDataScope() != null) {
-                OrgContext.setDataScope(principal.getDataScope());
-            }
             OrgContext.setAccessibleOrgIds(principal.getAccessibleOrgIds());
             OrgContext.setAccessibleShopIds(principal.getAccessibleShopIds());
 
@@ -93,17 +120,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             SecurityContextHolder.getContext().setAuthentication(authentication);
 
             String ua = request.getHeader("User-Agent");
-            String ip = clientIp(request);
+            String ip = HttpRequestUtils.clientIp(request);
             eventPublisher.publishEvent(new JwtTokenAuthenticatedEvent(this, raw, principal, ip, ua));
-        } catch (Exception ex) {
-            SecurityContextHolder.clearContext();
-            log.warn("JWT 解析失败，请求被拒绝：{}", ex.getMessage());
-        }
 
-        try {
+            // ---- 3. 继续过滤器链（下游异常正常向上抛出，不吞掉） ----
             filterChain.doFilter(request, response);
         } finally {
-            // 清理 ThreadLocal，防止内存泄漏
+            // 无论是否成功，都清理 ThreadLocal，防止泄漏
             TenantContext.clear();
             OrgContext.clear();
             DataScopeContext.clear();
@@ -112,11 +135,17 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
     }
 
-    private static String clientIp(jakarta.servlet.http.HttpServletRequest request) {
-        String x = request.getHeader("X-Forwarded-For");
-        if (x != null && !x.isBlank()) {
-            return x.split(",")[0].trim();
+    private boolean isInvalidatedByTimestamp(Long userId, Date issuedAt) {
+        if (invalidBeforeStore == null || userId == null || issuedAt == null) {
+            return false;
         }
-        return request.getRemoteAddr();
+        Long invalidBeforeMillis = invalidBeforeStore.getInvalidBeforeMillis(userId);
+        return invalidBeforeMillis != null && issuedAt.getTime() < invalidBeforeMillis;
+    }
+
+    private static void writeUnauthorized(HttpServletResponse response) throws IOException {
+        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        response.setContentType("application/json;charset=UTF-8");
+        response.getWriter().write("{\"code\":401,\"msg\":\"令牌已失效，请重新登录\"}");
     }
 }

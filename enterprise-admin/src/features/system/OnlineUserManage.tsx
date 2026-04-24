@@ -3,8 +3,9 @@ import { onlineUserApi, unwrapPage } from '../../api/system-crud'
 import type { OnlineUserRow } from '../../types/system-crud'
 import { useToast } from '../../components/Toast'
 import { useConfirm } from '../../components/ConfirmDialog'
-import { PermGate } from '../../context/PermissionsContext'
+import { PermGate, usePermissions } from '../../context/PermissionsContext'
 import { SYSTEM_PERMS } from '../../lib/system-perms'
+import { useStaleGuard } from '../../hooks/useStaleGuard'
 
 function formatTimestamp(ts?: number): string {
   if (!ts) return '--'
@@ -20,50 +21,61 @@ function formatTimestamp(ts?: number): string {
 export default function OnlineUserManage() {
   const toast = useToast()
   const confirm = useConfirm()
+  const { can } = usePermissions()
 
   const [list, setList] = useState<OnlineUserRow[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
 
   const [query, setQuery] = useState<{
-    pageNum: number
-    pageSize: number
+    current: number
+    size: number
     username: string
     ip: string
   }>({
-    pageNum: 1,
-    pageSize: 10,
+    current: 1,
+    size: 10,
     username: '',
     ip: '',
   })
+  const [draft, setDraft] = useState({ username: '', ip: '' })
+  const guard = useStaleGuard()
 
   const loadData = useCallback(async (q: typeof query) => {
+    const id = guard.nextId()
     setLoading(true)
     try {
       const { rows, total: t } = await unwrapPage(
         onlineUserApi.page({
-          pageNum: q.pageNum,
-          pageSize: q.pageSize,
+          current: q.current,
+          size: q.size,
           username: q.username.trim() ? q.username.trim() : undefined,
           ip: q.ip.trim() ? q.ip.trim() : undefined,
         }),
       )
+      if (!guard.isCurrent(id)) return
       setList(rows)
       setTotal(t)
     } catch (e) {
+      if (!guard.isCurrent(id)) return
       setList([])
       setTotal(0)
       toast.error(e instanceof Error ? e.message : '加载在线用户失败')
     } finally {
+      if (!guard.isCurrent(id)) return
       setLoading(false)
     }
-  }, [])
+  }, [guard, toast])
 
   useEffect(() => {
     void loadData(query)
   }, [query, loadData])
 
   const handleKick = async (row: OnlineUserRow) => {
+    if (row.userId == null) {
+      toast.error('用户ID缺失，无法强退')
+      return
+    }
     const ok = await confirm({
       title: '强制下线',
       message: `确定要将用户「${row.username ?? '--'}」强制下线吗？`,
@@ -72,24 +84,38 @@ export default function OnlineUserManage() {
     })
     if (!ok) return
     try {
-      await onlineUserApi.kick(row.userId!)
+      await onlineUserApi.kick(row.userId)
       toast.success(`已将「${row.username}」强制下线`)
       void loadData(query)
-    } catch {
-      toast.error('强退失败，请重试')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '强退失败')
     }
   }
 
   const handleSearch = () => {
-    setQuery((prev) => ({ ...prev, pageNum: 1 }))
+    setQuery((prev) => ({
+      ...prev,
+      current: 1,
+      username: draft.username,
+      ip: draft.ip,
+    }))
   }
 
   const handleReset = () => {
-    setQuery({ pageNum: 1, pageSize: 10, username: '', ip: '' })
+    setQuery({ current: 1, size: 10, username: '', ip: '' })
+    setDraft({ username: '', ip: '' })
   }
 
   const changePage = (next: number) => {
-    setQuery((prev) => ({ ...prev, pageNum: next }))
+    setQuery((prev) => ({ ...prev, current: next }))
+  }
+
+  if (!can(SYSTEM_PERMS.monitor.online)) {
+    return (
+      <div className="bg-white p-10 rounded-[2.5rem] shadow-sm ring-1 ring-slate-100 text-center text-slate-500 font-bold">
+        无权限访问：在线用户
+      </div>
+    )
   }
 
   return (
@@ -121,8 +147,11 @@ export default function OnlineUserManage() {
           <label className="text-[10px] font-black text-slate-400 uppercase">用户名</label>
           <input
             placeholder="搜索用户名"
-            value={query.username}
-            onChange={(e) => setQuery((prev) => ({ ...prev, username: e.target.value }))}
+            value={draft.username}
+            onChange={(e) => setDraft((prev) => ({ ...prev, username: e.target.value }))}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSearch()
+            }}
             className="px-3 py-2 rounded-xl bg-slate-50 ring-1 ring-slate-200 text-sm w-44 font-bold focus:ring-indigo-500"
           />
         </div>
@@ -130,8 +159,11 @@ export default function OnlineUserManage() {
           <label className="text-[10px] font-black text-slate-400 uppercase">登录 IP</label>
           <input
             placeholder="搜索 IP（支持包含匹配）"
-            value={query.ip}
-            onChange={(e) => setQuery((prev) => ({ ...prev, ip: e.target.value }))}
+            value={draft.ip}
+            onChange={(e) => setDraft((prev) => ({ ...prev, ip: e.target.value }))}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSearch()
+            }}
             className="px-3 py-2 rounded-xl bg-slate-50 ring-1 ring-slate-200 text-sm w-44 font-bold focus:ring-indigo-500"
           />
         </div>
@@ -172,8 +204,8 @@ export default function OnlineUserManage() {
             ) : list.length === 0 ? (
               <tr><td colSpan={5} className="px-8 py-20 text-center text-slate-300 font-black text-lg italic">当前无在线用户</td></tr>
             ) : (
-              list.map((row) => (
-                <tr key={row.userId} className="hover:bg-slate-50 transition-colors">
+              list.map((row, idx) => (
+                <tr key={row.userId ?? `${row.username ?? 'unknown'}-${idx}`} className="hover:bg-slate-50 transition-colors">
                   <td className="px-8 py-5 text-slate-900">{row.username || '--'}</td>
                   <td className="px-8 py-5 text-indigo-600 tabular-nums text-xs">{row.ip || '--'}</td>
                   <td className="px-8 py-5 text-slate-500 text-xs tabular-nums">{formatTimestamp(row.loginTime)}</td>
@@ -182,7 +214,7 @@ export default function OnlineUserManage() {
                     <PermGate perms={[SYSTEM_PERMS.monitor.onlineKick]}>
                       <button
                         type="button"
-                        onClick={() => handleKick(row)}
+                        onClick={() => void handleKick(row)}
                         className="bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition"
                       >
                         强退
@@ -198,20 +230,36 @@ export default function OnlineUserManage() {
         {/* Pagination */}
         <div className="px-8 py-4 bg-slate-50/50 border-t border-slate-50 flex justify-between items-center text-xs font-bold text-slate-500">
           <div>共 <span className="text-slate-900">{total}</span> 个在线用户</div>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
+            <select
+              value={query.size}
+              onChange={(e) =>
+                setQuery((prev) => ({
+                  ...prev,
+                  current: 1,
+                  size: Number(e.target.value),
+                }))
+              }
+              className="px-2 py-1 bg-white rounded-lg ring-1 ring-slate-200"
+            >
+              <option value={10}>10条/页</option>
+              <option value={20}>20条/页</option>
+              <option value={50}>50条/页</option>
+            </select>
+            <span>第 {query.current} / {Math.max(1, Math.ceil(total / query.size))} 页</span>
             <button
-              onClick={() => changePage(query.pageNum - 1)}
-              disabled={query.pageNum <= 1}
+              onClick={() => changePage(query.current - 1)}
+              disabled={query.current <= 1}
               className="px-3 py-1 bg-white rounded-lg ring-1 ring-slate-200 disabled:opacity-50 hover:bg-slate-50"
             >
               前页
             </button>
             <span className="px-3 py-1 text-slate-900 bg-white rounded-lg ring-1 ring-indigo-200 font-black">
-              {query.pageNum}
+              {query.current}
             </span>
             <button
-              onClick={() => changePage(query.pageNum + 1)}
-              disabled={query.pageNum * query.pageSize >= total}
+              onClick={() => changePage(query.current + 1)}
+              disabled={query.current >= Math.max(1, Math.ceil(total / query.size))}
               className="px-3 py-1 bg-white rounded-lg ring-1 ring-slate-200 disabled:opacity-50 hover:bg-slate-50"
             >
               后页

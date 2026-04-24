@@ -11,7 +11,7 @@ knife4j:
   enable: true
   setting:
     language: zh_cn
-  production: false
+  production: ${KNIFE4J_PRODUCTION:false}
 
 spring:
   application:
@@ -31,9 +31,9 @@ spring:
       datasource:
         master:
           driver-class-name: com.mysql.cj.jdbc.Driver
-          url: jdbc:mysql://127.0.0.1:3306/nexus_dev?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
-          username: root
-          password: ""
+          url: jdbc:mysql://127.0.0.1:3306/nexus_dev?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=${DB_USE_SSL:false}&allowPublicKeyRetrieval=${DB_ALLOW_PUBLIC_KEY:true}
+          username: ${DB_USERNAME:root}
+          password: ${DB_PASSWORD:}
   sql:
     init:
       mode: never
@@ -57,7 +57,7 @@ nexus:
     jwt:
       # 【安全警告】生产环境必须修改为随机密钥（32+字符），通过环境变量覆盖
       secret: ${JWT_SECRET:nexus-dev-jwt-secret-0123456789abcdef}
-      expiration-seconds: 604800
+      expiration-seconds: ${JWT_EXPIRATION_SECONDS:86400}
 
 management:
   endpoints:

@@ -9,6 +9,7 @@ import com.nexus.erp.application.service.ErpProductApplicationService;
 import com.nexus.erp.domain.model.ErpProduct;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -28,6 +29,7 @@ public class ErpProductController {
     private final ErpProductApplicationService productApplicationService;
 
     @GetMapping("/page")
+    @PreAuthorize("@ss.hasPermi('erp:product:list')")
     public Result<PageResult<ErpProduct>> page(PageQuery pageQuery,
                                                 @RequestParam(required = false) String name,
                                                 @RequestParam(required = false) String category) {
@@ -35,12 +37,14 @@ public class ErpProductController {
     }
 
     @OpLog(module = "产品管理", type = "新增")
+    @PreAuthorize("@ss.hasPermi('erp:product:add')")
     @PostMapping
     public Result<Long> create(@Valid @RequestBody ErpDtos.ProductCreateRequest req) {
         return Result.ok(productApplicationService.create(req));
     }
 
     @OpLog(module = "产品管理", type = "修改")
+    @PreAuthorize("@ss.hasPermi('erp:product:edit')")
     @PutMapping("/{id}")
     public Result<Void> update(@PathVariable Long id, @Valid @RequestBody ErpDtos.ProductUpdateRequest req) {
         productApplicationService.update(id, req);
@@ -48,6 +52,7 @@ public class ErpProductController {
     }
 
     @OpLog(module = "产品管理", type = "状态变更")
+    @PreAuthorize("@ss.hasPermi('erp:product:edit')")
     @PutMapping("/{id}/status")
     public Result<Void> status(@PathVariable Long id, @Valid @RequestBody ErpDtos.ProductStatusRequest req) {
         productApplicationService.updateStatus(id, req);

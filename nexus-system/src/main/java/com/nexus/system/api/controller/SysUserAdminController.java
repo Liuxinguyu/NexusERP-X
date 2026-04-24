@@ -34,6 +34,7 @@ public class SysUserAdminController {
         return Result.ok(userAdminApplicationService.page(current, size, username, nickname, orgId));
     }
 
+    @PreAuthorize("@ss.hasPermi('system:user:list')")
     @GetMapping("/detail/{id}")
     public Result<SysUser> getById(@PathVariable Long id) {
         return Result.ok(userAdminApplicationService.getById(id));
@@ -62,13 +63,32 @@ public class SysUserAdminController {
         return Result.ok();
     }
 
+    @PreAuthorize("@ss.hasPermi('system:user:list')")
     @GetMapping("/{id}/shop-roles")
     public Result<List<SystemAdminDtos.UserShopRoleItem>> listShopRoles(@PathVariable Long id) {
         return Result.ok(userAdminApplicationService.listUserShopRoles(id));
     }
 
+    @OpLog(module = "用户管理", type = "修改状态")
+    @PutMapping("/{id}/status")
+    @PreAuthorize("@ss.hasPermi('system:user:edit')")
+    public Result<Void> updateStatus(@PathVariable Long id, @RequestParam Integer status) {
+        userAdminApplicationService.updateStatus(id, status);
+        return Result.ok();
+    }
+
+    @OpLog(module = "用户管理", type = "重置密码")
+    @PutMapping("/{id}/reset-pwd")
+    @PreAuthorize("@ss.hasPermi('system:user:resetPwd')")
+    public Result<Void> resetPassword(@PathVariable Long id,
+                                      @Valid @RequestBody SystemAdminDtos.UserResetPasswordRequest req) {
+        userAdminApplicationService.resetPassword(id, req.getNewPassword());
+        return Result.ok();
+    }
+
     @OpLog(module = "用户管理", type = "分配店铺角色")
     @PutMapping("/{id}/shop-roles")
+    @PreAuthorize("@ss.hasPermi('system:user:edit')")
     public Result<Void> saveShopRoles(@PathVariable Long id, @Valid @RequestBody SystemAdminDtos.UserShopRoleSaveRequest req) {
         userAdminApplicationService.saveUserShopRoles(id, req);
         return Result.ok();

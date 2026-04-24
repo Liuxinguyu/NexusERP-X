@@ -8,6 +8,7 @@ import com.nexus.erp.application.service.ErpWarehouseApplicationService;
 import com.nexus.erp.domain.model.ErpWarehouse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -28,6 +29,7 @@ public class ErpWarehouseController {
     private final ErpWarehouseApplicationService warehouseApplicationService;
 
     @GetMapping("/page")
+    @PreAuthorize("@ss.hasPermi('erp:warehouse:list')")
     public Result<IPage<ErpWarehouse>> page(
             @RequestParam(defaultValue = "1") long current,
             @RequestParam(defaultValue = "10") long size,
@@ -36,12 +38,14 @@ public class ErpWarehouseController {
     }
 
     @PostMapping
+    @PreAuthorize("@ss.hasPermi('erp:warehouse:add')")
     @OpLog(module = "ERP仓库", type = "新增")
     public Result<Long> create(@Valid @RequestBody ErpFoundationDtos.WarehouseCreateRequest req) {
         return Result.ok(warehouseApplicationService.create(req));
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("@ss.hasPermi('erp:warehouse:edit')")
     @OpLog(module = "ERP仓库", type = "修改")
     public Result<Void> update(@PathVariable Long id,
                                @Valid @RequestBody ErpFoundationDtos.WarehouseUpdateRequest req) {
@@ -50,6 +54,7 @@ public class ErpWarehouseController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("@ss.hasPermi('erp:warehouse:delete')")
     @OpLog(module = "ERP仓库", type = "删除")
     public Result<Void> delete(@PathVariable Long id) {
         warehouseApplicationService.delete(id);

@@ -1,12 +1,15 @@
 package com.nexus.system.application.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.nexus.common.context.TenantContext;
 import com.nexus.common.core.domain.ResultCode;
 import com.nexus.common.exception.BusinessException;
 import com.nexus.common.security.NexusPrincipal;
 import com.nexus.common.security.SecurityUtils;
 import com.nexus.common.security.datascope.DataScope;
 import com.nexus.common.security.jwt.JwtTokenProvider;
+import com.nexus.common.utils.HttpRequestUtils;
 import com.nexus.system.application.dto.AuthDtos;
 import com.nexus.system.domain.model.SysMenu;
 import com.nexus.system.domain.model.SysRole;
@@ -35,11 +38,14 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 import java.util.Objects;
+import java.time.Duration;
 import java.util.stream.Collectors;
 
 @Slf4j
 @Service
 public class AuthApplicationService {
+    private static final int LOGIN_FAIL_MAX_TIMES = 5;
+    private static final Duration LOGIN_FAIL_LOCK_TTL = Duration.ofMinutes(15);
 
     private final SysUserMapper userMapper;
     private final SysUserShopRoleMapper userShopRoleMapper;
@@ -87,7 +93,7 @@ public class AuthApplicationService {
     }
 
     public AuthDtos.PreAuthLoginResponse login(AuthDtos.LoginRequest request, HttpServletRequest http) {
-        String ip = clientIp(http);
+        String ip = HttpRequestUtils.clientIp(http);
         String ua = http.getHeader("User-Agent");
         String nameForLog = request != null && StringUtils.hasText(request.getUsername()) ? request.getUsername().trim() : "";
 
@@ -95,23 +101,31 @@ public class AuthApplicationService {
             sysLoginLogApplicationService.recordFailure(null, nameForLog.isEmpty() ? "unknown" : nameForLog, ip, ua, "用户名或密码为空");
             throw new BusinessException(ResultCode.BAD_REQUEST, "用户名或密码不能为空");
         }
+        if (request.getTenantId() == null) {
+            sysLoginLogApplicationService.recordFailure(null, nameForLog, ip, ua, "缺少租户标识");
+            throw new BusinessException(ResultCode.BAD_REQUEST, "租户标识不能为空");
+        }
+        Long reqTenantId = request.getTenantId();
+        if (isLoginLocked(nameForLog, reqTenantId)) {
+            sysLoginLogApplicationService.recordFailure(reqTenantId, nameForLog, ip, ua, "登录失败次数过多，账户已临时锁定");
+            throw new BusinessException(ResultCode.FORBIDDEN, "登录失败次数过多，请15分钟后重试");
+        }
+
+        try {
+            loginCaptchaValidator.validate(reqTenantId, request.getCaptchaKey(), request.getCaptcha());
+        } catch (BusinessException ex) {
+            sysLoginLogApplicationService.recordFailure(reqTenantId, nameForLog, ip, ua, ex.getMessage());
+            throw ex;
+        }
+
         LambdaQueryWrapper<SysUser> uq = new LambdaQueryWrapper<SysUser>()
                 .eq(SysUser::getUsername, request.getUsername().trim())
+                .eq(SysUser::getTenantId, reqTenantId)
                 .eq(SysUser::getDelFlag, 0);
-        if (request.getTenantId() != null) {
-            uq.eq(SysUser::getTenantId, request.getTenantId());
-        }
         SysUser user = userMapper.selectOne(uq.last("limit 1"));
         if (user == null) {
             sysLoginLogApplicationService.recordFailure(null, nameForLog, ip, ua, "用户名或密码错误");
             throw new BusinessException(ResultCode.UNAUTHORIZED, "用户名或密码错误");
-        }
-
-        try {
-            loginCaptchaValidator.validate(user.getTenantId(), request.getCaptchaKey(), request.getCaptcha());
-        } catch (BusinessException ex) {
-            sysLoginLogApplicationService.recordFailure(user.getTenantId(), user.getUsername(), ip, ua, ex.getMessage());
-            throw ex;
         }
 
         if (user.getStatus() != null && user.getStatus() == 0) {
@@ -119,10 +133,16 @@ public class AuthApplicationService {
             throw new BusinessException(ResultCode.FORBIDDEN, "账号已停用");
         }
         if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
+            long failedTimes = increaseLoginFailCount(nameForLog, reqTenantId);
             sysLoginLogApplicationService.recordFailure(user.getTenantId(), user.getUsername(), ip, ua, "用户名或密码错误");
+            if (failedTimes >= LOGIN_FAIL_MAX_TIMES) {
+                throw new BusinessException(ResultCode.FORBIDDEN, "登录失败次数过多，请15分钟后重试");
+            }
             throw new BusinessException(ResultCode.UNAUTHORIZED, "用户名或密码错误");
         }
+        clearLoginFailCount(nameForLog, reqTenantId);
 
+        TenantContext.setTenantId(user.getTenantId());
         List<AuthDtos.ShopItem> shops = queryShops(user.getId());
         if (shops.isEmpty()) {
             sysLoginLogApplicationService.recordFailure(user.getTenantId(), user.getUsername(), ip, ua, "无可登录店铺");
@@ -146,7 +166,7 @@ public class AuthApplicationService {
     }
 
     public AuthDtos.LoginResponse confirmShop(AuthDtos.ConfirmShopRequest request, HttpServletRequest http) {
-        String ip = clientIp(http);
+        String ip = HttpRequestUtils.clientIp(http);
         String ua = http.getHeader("User-Agent");
         if (request == null || !StringUtils.hasText(request.getPreAuthToken())) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "preAuthToken 不能为空");
@@ -186,31 +206,19 @@ public class AuthApplicationService {
         SysShop targetShop = shopMapper.selectById(targetShopId);
         Long orgId = targetShop != null ? targetShop.getOrgId() : null;
 
-        Collection<GrantedAuthority> authorities = buildAuthorities(userId, targetShopId);
+        Collection<GrantedAuthority> authorities = buildAuthorities(userId, targetShopId, tenantId);
         NexusPrincipal principal = new NexusPrincipal(
-                userId, username, tenantId, targetShopId, orgId,
+                userId, username, tenantId, null, targetShopId, orgId,
                 scope.dataScope, scope.accessibleShopIds, scope.accessibleOrgIds, authorities
         );
         String token = jwtTokenProvider.createAccessToken(principal);
 
-        try {
-            onlineUserRedisService.recordLogin(token, user, ip, ua);
-        } catch (Exception e) {
-            log.warn("在线会话写入 Redis 失败: {}", e.getMessage());
-        }
+        recordOnlineLoginOrThrow(token, user, ip, ua);
 
         sysLoginLogApplicationService.recordSuccess(tenantId, username, ip, ua, "登录成功");
         return buildLoginResponse(token, tenantId, targetShopId, orgId, scope);
     }
 
-
-    private static String clientIp(HttpServletRequest request) {
-        String x = request.getHeader("X-Forwarded-For");
-        if (StringUtils.hasText(x)) {
-            return x.split(",")[0].trim();
-        }
-        return request.getRemoteAddr();
-    }
 
     public List<AuthDtos.ShopItem> getShops(Long userId) {
         List<AuthDtos.ShopItem> shops = authRedisService.getUserShops(userId);
@@ -229,7 +237,7 @@ public class AuthApplicationService {
      * Token 续期（Rotation）：基于当前登录态重新签发 token，旧 token 立即失效。
      * 前端在 access token 即将过期时调用此接口获取新 token。
      */
-    public AuthDtos.LoginResponse refreshToken(String oldRawJwt, HttpServletRequest http) {
+    public AuthDtos.LoginResponse refreshToken(String oldTokenJti, HttpServletRequest http) {
         var currentPrincipal = SecurityUtils.currentPrincipal();
         if (currentPrincipal == null || currentPrincipal.getUserId() == null) {
             throw new BusinessException(ResultCode.UNAUTHORIZED, "未登录");
@@ -260,30 +268,32 @@ public class AuthApplicationService {
 
         ScopeData scope = scopeByUserAndShop(tenantId, userId, currentShopId);
 
+        authRedisService.saveSession(userId,
+                new AuthRedisService.SessionState(currentShopId, scope.dataScope, scope.accessibleShopIds));
+
         SysShop currentShop = shopMapper.selectById(currentShopId);
         Long currentOrgId = currentShop != null ? currentShop.getOrgId() : null;
 
-        Collection<GrantedAuthority> authorities = buildAuthorities(userId, currentShopId);
+        Collection<GrantedAuthority> authorities = buildAuthorities(userId, currentShopId, tenantId);
 
         NexusPrincipal principal = new NexusPrincipal(
-                userId, username, tenantId, currentShopId, currentOrgId,
+                userId, username, tenantId, null, currentShopId, currentOrgId,
                 scope.dataScope, scope.accessibleShopIds, scope.accessibleOrgIds, authorities
         );
         String newToken = jwtTokenProvider.createAccessToken(principal);
 
         // 旧 token 失效（Rotation）
-        if (StringUtils.hasText(oldRawJwt)) {
-            onlineUserRedisService.removeToken(oldRawJwt);
+        if (!StringUtils.hasText(oldTokenJti)) {
+            oldTokenJti = currentPrincipal.getJti();
+        }
+        if (StringUtils.hasText(oldTokenJti)) {
+            onlineUserRedisService.removeToken(oldTokenJti);
         }
 
         // 新 token 写入在线会话
-        String ip = clientIp(http);
+        String ip = HttpRequestUtils.clientIp(http);
         String ua = http.getHeader("User-Agent");
-        try {
-            onlineUserRedisService.recordLogin(newToken, user, ip, ua);
-        } catch (Exception e) {
-            log.warn("Token 续期后写入在线会话失败: {}", e.getMessage());
-        }
+        recordOnlineLoginOrThrow(newToken, user, ip, ua);
 
         sysLoginLogApplicationService.recordSuccess(tenantId, username, ip, ua, "Token 续期");
 
@@ -292,12 +302,13 @@ public class AuthApplicationService {
     }
 
     public AuthDtos.LoginResponse switchShop(Long userId, Long tenantId, String username, Long targetShopId,
-                                             String oldRawJwt, HttpServletRequest http) {
+                                             String oldTokenJti, HttpServletRequest http) {
         if (targetShopId == null) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "shopId 不能为空");
         }
         long exists = userShopRoleMapper.selectCount(new LambdaQueryWrapper<SysUserShopRole>()
                 .eq(SysUserShopRole::getUserId, userId)
+                .eq(SysUserShopRole::getTenantId, tenantId)
                 .eq(SysUserShopRole::getShopId, targetShopId)
                 .eq(SysUserShopRole::getDelFlag, 0));
         if (exists <= 0) {
@@ -311,26 +322,22 @@ public class AuthApplicationService {
         SysShop targetShop = shopMapper.selectById(targetShopId);
         Long orgId = targetShop != null ? targetShop.getOrgId() : null;
 
-        Collection<GrantedAuthority> authorities = buildAuthorities(userId, targetShopId);
+        Collection<GrantedAuthority> authorities = buildAuthorities(userId, targetShopId, tenantId);
 
         NexusPrincipal principal = new NexusPrincipal(
-                userId, username, tenantId, targetShopId, orgId,
+                userId, username, tenantId, null, targetShopId, orgId,
                 scope.dataScope, scope.accessibleShopIds, scope.accessibleOrgIds, authorities
         );
         String token = jwtTokenProvider.createAccessToken(principal);
 
-        if (StringUtils.hasText(oldRawJwt)) {
-            onlineUserRedisService.removeToken(oldRawJwt);
+        if (StringUtils.hasText(oldTokenJti)) {
+            onlineUserRedisService.removeToken(oldTokenJti);
         }
         SysUser user = userMapper.selectById(userId);
-        String ip = clientIp(http);
+        String ip = HttpRequestUtils.clientIp(http);
         String ua = http.getHeader("User-Agent");
         if (user != null) {
-            try {
-                onlineUserRedisService.recordLogin(token, user, ip, ua);
-            } catch (Exception e) {
-                log.warn("切换店铺后写入在线会话失败: {}", e.getMessage());
-            }
+            recordOnlineLoginOrThrow(token, user, ip, ua);
         }
 
         sysLoginLogApplicationService.recordSuccess(tenantId, username, ip, ua, "切换店铺");
@@ -390,17 +397,22 @@ public class AuthApplicationService {
             throw new BusinessException(ResultCode.FORBIDDEN, "角色不存在或已删除");
         }
 
-        int maxScope = roles.stream()
+        DataScope maxDataScope = getMaxDataScope(roles.stream()
                 .map(SysRole::getDataScope)
+                .map(DataScope::fromCode)
                 .filter(Objects::nonNull)
-                .max(Integer::compareTo)
-                .orElse(2);
+                .toList());
+        int maxScope = maxDataScope.getCode();
 
         List<Long> accessibleShopIds = List.of();
         List<Long> accessibleOrgIds = List.of();
 
         SysShop current = shopMapper.selectById(shopId);
         Long rootOrgId = current != null ? current.getOrgId() : null;
+
+        if (maxScope >= DataScope.SHOP.getCode() && rootOrgId == null) {
+            log.warn("店铺 shopId={} 未关联组织(orgId=null)，数据范围降级为 SELF", shopId);
+        }
 
         if (maxScope == DataScope.ORG_AND_SUB_SHOPS.getCode() && tenantId != null && rootOrgId != null) {
             accessibleOrgIds = sysOrgApplicationService.listSelfAndDescendantOrgIds(tenantId, rootOrgId);
@@ -416,11 +428,28 @@ public class AuthApplicationService {
             if (accessibleOrgIds.isEmpty()) {
                 accessibleOrgIds = List.of(rootOrgId);
             }
-        } else if (maxScope == 2 && rootOrgId != null) {
+        } else if (maxScope == DataScope.SHOP.getCode() && rootOrgId != null) {
+            accessibleShopIds = List.of(shopId);
             accessibleOrgIds = List.of(rootOrgId);
         }
 
         return new ScopeData(maxScope, accessibleShopIds, accessibleOrgIds);
+    }
+
+    private DataScope getMaxDataScope(List<DataScope> scopes) {
+        if (scopes == null || scopes.isEmpty()) {
+            return DataScope.SELF;
+        }
+        DataScope max = DataScope.SELF;
+        for (DataScope scope : scopes) {
+            if (scope == null) {
+                continue;
+            }
+            if (scope.getCode() > max.getCode()) {
+                max = scope;
+            }
+        }
+        return max;
     }
 
     private AuthDtos.LoginResponse buildLoginResponse(String token, Long tenantId, Long currentShopId,
@@ -446,7 +475,7 @@ public class AuthApplicationService {
      *   <li>菜单级别：sys_menu.perms（如 system:user:create）</li>
      * </ul>
      */
-    private Collection<GrantedAuthority> buildAuthorities(Long userId, Long shopId) {
+    private Collection<GrantedAuthority> buildAuthorities(Long userId, Long shopId, Long tenantId) {
         // 1. 查询用户在该店铺下的角色绑定
         List<SysUserShopRole> mapping = userShopRoleMapper.selectList(new LambdaQueryWrapper<SysUserShopRole>()
                 .eq(SysUserShopRole::getUserId, userId)
@@ -487,7 +516,7 @@ public class AuthApplicationService {
             List<SysMenu> menus = menuMapper.selectList(new LambdaQueryWrapper<SysMenu>()
                     .in(SysMenu::getId, menuIds)
                     .eq(SysMenu::getDelFlag, 0)
-                    .eq(SysMenu::getStatus, 1)); // Only add perms from enabled menus
+                    .eq(SysMenu::getStatus, 1));
             for (SysMenu menu : menus) {
                 if (menu.getPerms() != null && !menu.getPerms().isBlank()) {
                     String p = menu.getPerms().trim();
@@ -497,16 +526,23 @@ public class AuthApplicationService {
             }
         }
 
-        // Cache permissions to Redis for @ss.hasPermi usage
-        String cacheKey = "login:permissions:" + userId;
+        // Cache permissions to Redis for @ss.hasPermi usage — key 包含 tenant+shop 维度
         if (stringRedisTemplate != null) {
-            stringRedisTemplate.delete(cacheKey); // clear old
             if (roles.stream().anyMatch(r -> "ADMIN".equalsIgnoreCase(r.getRoleCode()))) {
-                permsSet.add("*:*:*"); // Admin gets all permissions wildcard
+                permsSet.add("*:*:*");
             }
+            String scopedKey = "login:permissions:" + tenantId + ":" + userId + ":" + shopId;
+            stringRedisTemplate.delete(scopedKey);
             if (!permsSet.isEmpty()) {
-                stringRedisTemplate.opsForSet().add(cacheKey, permsSet.toArray(new String[0]));
-                stringRedisTemplate.expire(cacheKey, java.time.Duration.ofDays(7));
+                stringRedisTemplate.opsForSet().add(scopedKey, permsSet.toArray(new String[0]));
+                stringRedisTemplate.expire(scopedKey, java.time.Duration.ofDays(1));
+            }
+            // 同时写旧格式 key，保证滚动升级期间兼容
+            String legacyKey = "login:permissions:" + userId;
+            stringRedisTemplate.delete(legacyKey);
+            if (!permsSet.isEmpty()) {
+                stringRedisTemplate.opsForSet().add(legacyKey, permsSet.toArray(new String[0]));
+                stringRedisTemplate.expire(legacyKey, java.time.Duration.ofDays(1));
             }
         }
 
@@ -514,5 +550,51 @@ public class AuthApplicationService {
     }
 
     private record ScopeData(Integer dataScope, List<Long> accessibleShopIds, List<Long> accessibleOrgIds) {
+    }
+
+    private boolean isLoginLocked(String username, Long tenantId) {
+        if (!StringUtils.hasText(username)) {
+            return false;
+        }
+        String val = stringRedisTemplate.opsForValue().get(loginFailKey(username, tenantId));
+        if (!StringUtils.hasText(val)) {
+            return false;
+        }
+        try {
+            return Long.parseLong(val) >= LOGIN_FAIL_MAX_TIMES;
+        } catch (NumberFormatException ignored) {
+            return false;
+        }
+    }
+
+    private long increaseLoginFailCount(String username, Long tenantId) {
+        if (!StringUtils.hasText(username)) {
+            return 0L;
+        }
+        String key = loginFailKey(username, tenantId);
+        Long count = stringRedisTemplate.opsForValue().increment(key);
+        if (count != null && count == 1L) {
+            stringRedisTemplate.expire(key, LOGIN_FAIL_LOCK_TTL);
+        }
+        return count == null ? 0L : count;
+    }
+
+    private void clearLoginFailCount(String username, Long tenantId) {
+        if (!StringUtils.hasText(username)) {
+            return;
+        }
+        stringRedisTemplate.delete(loginFailKey(username, tenantId));
+    }
+
+    private static String loginFailKey(String username, Long tenantId) {
+        return "login:fail:" + tenantId + ":" + username.trim();
+    }
+
+    private void recordOnlineLoginOrThrow(String token, SysUser user, String ip, String ua) {
+        try {
+            onlineUserRedisService.recordLogin(token, user, ip, ua);
+        } catch (JsonProcessingException e) {
+            throw new BusinessException(ResultCode.INTERNAL_ERROR.getCode(), "在线会话写入失败，请稍后重试", e);
+        }
     }
 }

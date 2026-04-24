@@ -2,12 +2,15 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { fileApi } from '../../api/oa-file'
 import { useToast } from '../../components/Toast'
 import { useConfirm } from '../../components/ConfirmDialog'
+import { PermGate, usePermissions } from '../../context/PermissionsContext'
+import { OA_PERMS } from '../../lib/business-perms'
 import Modal from '../../components/Modal'
 import type { OaFileFolder, OaFileRow } from '../../types/oa-crud'
 
 export default function CloudDisk() {
   const toast = useToast()
   const confirm = useConfirm()
+  const { can } = usePermissions()
   const [folders, setFolders] = useState<OaFileFolder[]>([])
   const [files, setFiles] = useState<OaFileRow[]>([])
   const [currentFolder, setCurrentFolder] = useState<number | undefined>()
@@ -16,17 +19,27 @@ export default function CloudDisk() {
   const [newFolderName, setNewFolderName] = useState('')
   const [folderModal, setFolderModal] = useState(false)
   const uploadRef = useRef<HTMLInputElement>(null)
+  const [creatingFolder, setCreatingFolder] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const MAX_UPLOAD_SIZE = 20 * 1024 * 1024
+  const ALLOWED_EXTS = ['.pdf', '.xlsx', '.xls', '.doc', '.docx', '.png', '.jpg', '.jpeg', '.zip', '.rar']
 
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
       const [f, fi] = await Promise.all([
-        fileApi.getFolders().catch(() => []),
-        fileApi.listFiles({ folderId: currentFolder }).catch(() => []),
+        fileApi.getFolders({ parentId: currentFolder }).catch(() => {
+          toast.error('加载文件夹失败')
+          return []
+        }),
+        fileApi.listFiles({ folderId: currentFolder }).catch(() => {
+          toast.error('加载文件列表失败')
+          return []
+        }),
       ])
       setFolders(f); setFiles(fi)
     } finally { setLoading(false) }
-  }, [currentFolder])
+  }, [currentFolder, toast])
 
   useEffect(() => { void loadData() }, [loadData])
 
@@ -43,23 +56,58 @@ export default function CloudDisk() {
 
   const handleCreateFolder = async () => {
     if (!newFolderName.trim()) return
+    if (creatingFolder) return
+    setCreatingFolder(true)
     try {
       await fileApi.createFolder({ folderName: newFolderName.trim(), parentId: currentFolder })
       toast.success('文件夹已创建')
       setFolderModal(false); setNewFolderName(''); void loadData()
     } catch (e) { toast.error(e instanceof Error ? e.message : '创建失败') }
+    finally { setCreatingFolder(false) }
   }
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
+    const ext = `.${(file.name.split('.').pop() ?? '').toLowerCase()}`
+    if (file.size > MAX_UPLOAD_SIZE) {
+      toast.error('文件大小超过 20MB 限制')
+      if (uploadRef.current) uploadRef.current.value = ''
+      return
+    }
+    if (!ALLOWED_EXTS.includes(ext)) {
+      toast.error('文件类型不支持')
+      if (uploadRef.current) uploadRef.current.value = ''
+      return
+    }
+    if (uploading) return
+    setUploading(true)
     try {
       await fileApi.upload(currentFolder ?? 0, file)
       toast.success('上传成功')
       void loadData()
     } catch (err) { toast.error(err instanceof Error ? err.message : '上传失败') }
-    finally { if (uploadRef.current) uploadRef.current.value = '' }
+    finally {
+      setUploading(false)
+      if (uploadRef.current) uploadRef.current.value = ''
+    }
   }
+  const handleDownload = async (id: number, fileName?: string) => {
+    try {
+      const blob = await fileApi.download(id)
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = fileName || `file-${id}`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '下载失败')
+    }
+  }
+
 
   const handleDeleteFile = async (id: number) => {
     const ok = await confirm({ title: '删除文件', message: '确认删除此文件？', danger: true })
@@ -91,6 +139,10 @@ export default function CloudDisk() {
     return (bytes / 1024 / 1024).toFixed(1) + 'MB'
   }
 
+  if (!can(OA_PERMS.cloudDisk.list)) {
+    return <div className="p-8 text-center text-slate-400 font-bold">暂无权限访问</div>
+  }
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex justify-between items-center">
@@ -103,8 +155,12 @@ export default function CloudDisk() {
           ))}
         </div>
         <div className="flex gap-3">
-          <button onClick={() => setFolderModal(true)} className="px-6 py-2 bg-white rounded-2xl ring-1 ring-slate-200 text-xs font-black text-slate-600 hover:bg-slate-50 transition-all">新建文件夹</button>
-          <button onClick={() => uploadRef.current?.click()} className="px-6 py-2 bg-indigo-600 text-white rounded-2xl text-xs font-black shadow-lg shadow-indigo-200 hover:bg-indigo-500 transition-all">上传文件</button>
+          <PermGate perms={[OA_PERMS.cloudDisk.create]}>
+            <button onClick={() => setFolderModal(true)} className="px-6 py-2 bg-white rounded-2xl ring-1 ring-slate-200 text-xs font-black text-slate-600 hover:bg-slate-50 transition-all">新建文件夹</button>
+          </PermGate>
+          <PermGate perms={[OA_PERMS.cloudDisk.upload]}>
+            <button onClick={() => uploadRef.current?.click()} className="px-6 py-2 bg-indigo-600 text-white rounded-2xl text-xs font-black shadow-lg shadow-indigo-200 hover:bg-indigo-500 transition-all disabled:opacity-60" disabled={uploading}>{uploading ? '上传中...' : '上传文件'}</button>
+          </PermGate>
           <input ref={uploadRef} type="file" className="hidden" onChange={handleUpload} />
         </div>
       </div>
@@ -118,8 +174,10 @@ export default function CloudDisk() {
               className="bg-white p-6 rounded-[2rem] shadow-sm ring-1 ring-slate-100 flex flex-col items-center group cursor-pointer hover:bg-indigo-50 hover:ring-indigo-200 transition-all duration-300">
               <div className="text-4xl mb-4 group-hover:scale-110 transition-transform">📁</div>
               <div className="text-xs font-black text-slate-900 truncate w-full text-center">{f.folderName}</div>
-              <button onClick={e => { e.stopPropagation(); handleDeleteFolder(f.id!) }}
-                className="mt-3 text-[10px] text-rose-400 font-black opacity-0 group-hover:opacity-100 transition-opacity hover:underline">删除</button>
+              <PermGate perms={[OA_PERMS.cloudDisk.delete]}>
+                <button onClick={e => { e.stopPropagation(); void handleDeleteFolder(f.id!) }}
+                  className="mt-3 text-[10px] text-rose-400 font-black opacity-0 group-hover:opacity-100 transition-opacity hover:underline">删除</button>
+              </PermGate>
             </div>
           ))}
           {files.map(f => (
@@ -132,9 +190,16 @@ export default function CloudDisk() {
                 {f.downloadCount != null && <span className="text-emerald-500">下载: {f.downloadCount}</span>}
               </div>
               <div className="flex gap-3 mt-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                <a href={`/api/v1/oa/files/${f.id}/download`} target="_blank" rel="noopener noreferrer"
-                  className="text-[10px] font-black text-indigo-400 hover:underline">下载</a>
-                <button onClick={() => handleDeleteFile(f.id!)} className="text-[10px] font-black text-rose-400 hover:underline">删除</button>
+                <button
+                  type="button"
+                  onClick={() => void handleDownload(f.id!, f.fileName ?? undefined)}
+                  className="text-[10px] font-black text-indigo-400 hover:underline"
+                >
+                  下载
+                </button>
+                <PermGate perms={[OA_PERMS.cloudDisk.delete]}>
+                  <button onClick={() => void handleDeleteFile(f.id!)} className="text-[10px] font-black text-rose-400 hover:underline">删除</button>
+                </PermGate>
               </div>
             </div>
           ))}
@@ -150,7 +215,7 @@ export default function CloudDisk() {
             className="w-full px-4 py-3 rounded-xl bg-slate-50 ring-1 ring-slate-200 text-sm font-bold focus:ring-indigo-500" />
           <div className="flex gap-4">
             <button onClick={() => setFolderModal(false)} className="flex-1 py-3 bg-white rounded-2xl ring-1 ring-slate-200 font-black text-xs text-slate-400">取消</button>
-            <button onClick={handleCreateFolder} className="flex-[2] py-3 bg-indigo-600 text-white rounded-2xl font-black text-xs hover:bg-indigo-500 transition-all">创建</button>
+            <button onClick={() => void handleCreateFolder()} disabled={creatingFolder} className="flex-[2] py-3 bg-indigo-600 text-white rounded-2xl font-black text-xs hover:bg-indigo-500 transition-all disabled:opacity-60">{creatingFolder ? '创建中...' : '创建'}</button>
           </div>
         </div>
       </Modal>

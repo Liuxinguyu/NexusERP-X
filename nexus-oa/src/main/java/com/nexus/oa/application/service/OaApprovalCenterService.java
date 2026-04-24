@@ -13,6 +13,8 @@ import com.nexus.oa.infrastructure.mapper.OaApprovalTaskMapper;
 import com.nexus.oa.infrastructure.mapper.OaLeaveDetailMapper;
 import com.nexus.oa.infrastructure.mapper.OaOvertimeMapper;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,6 +29,8 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class OaApprovalCenterService {
+
+    private static final Logger log = LoggerFactory.getLogger(OaApprovalCenterService.class);
 
     private static final int STATUS_PENDING = 0;
     private static final int STATUS_APPROVED = 1;
@@ -82,10 +86,15 @@ public class OaApprovalCenterService {
     public void approve(Long taskId, Boolean approved, String opinion) {
         Long tenantId = requireTenantId();
         Long approverId = requireUserId();
-        OaApprovalTask task = loadTask(taskId, tenantId);
+        OaApprovalTask task = taskMapper.selectById(taskId);
+        if (task == null || !Objects.equals(task.getTenantId(), tenantId)
+                || (task.getDelFlag() != null && task.getDelFlag() == 1)) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "审批任务不存在");
+        }
 
+        // 归属权校验：防止水平越权（IDOR），禁止非任务指派人执行审批动作
         if (!Objects.equals(task.getApproverUserId(), approverId)) {
-            throw new BusinessException(ResultCode.FORBIDDEN, "您不是该任务的审批人");
+            throw new BusinessException(ResultCode.FORBIDDEN, "越权操作：您无权审批该任务");
         }
         if (task.getStatus() != STATUS_PENDING) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "该任务已审批，请勿重复操作");
@@ -97,7 +106,7 @@ public class OaApprovalCenterService {
         taskMapper.updateById(task);
 
         // 同步更新业务单据状态
-        syncBizStatus(task.getBizType(), task.getBizId(), approved);
+        syncBizStatus(tenantId, task.getBizType(), task.getBizId(), approved);
     }
 
     // ===================== 提交审批（由业务模块调用） =====================
@@ -136,10 +145,15 @@ public class OaApprovalCenterService {
 
     // ===================== 同步业务单据状态 =====================
 
-    private void syncBizStatus(String bizType, Long bizId, Boolean approved) {
+    private void syncBizStatus(Long tenantId, String bizType, Long bizId, Boolean approved) {
         if ("leave".equals(bizType)) {
             OaLeave l = leaveMapper.selectById(bizId);
             if (l != null) {
+                if (!Objects.equals(l.getTenantId(), tenantId)) {
+                    log.warn("审批中心同步业务状态被跳过：跨租户 leave 单据 [bizId={}, expectedTenantId={}, actualTenantId={}]",
+                            bizId, tenantId, l.getTenantId());
+                    return;
+                }
                 l.setStatus(approved ? 2 : 3); // 2=已通过 3=已拒绝
                 l.setApproverTime(LocalDateTime.now());
                 leaveMapper.updateById(l);
@@ -147,6 +161,11 @@ public class OaApprovalCenterService {
         } else if ("overtime".equals(bizType)) {
             OaOvertime o = overtimeMapper.selectById(bizId);
             if (o != null) {
+                if (!Objects.equals(o.getTenantId(), tenantId)) {
+                    log.warn("审批中心同步业务状态被跳过：跨租户 overtime 单据 [bizId={}, expectedTenantId={}, actualTenantId={}]",
+                            bizId, tenantId, o.getTenantId());
+                    return;
+                }
                 o.setStatus(approved ? 2 : 3);
                 o.setApproverTime(LocalDateTime.now());
                 overtimeMapper.updateById(o);
@@ -178,7 +197,8 @@ public class OaApprovalCenterService {
         vo.setApproverUserId(t.getApproverUserId());
         vo.setApproverUserName(t.getApproverUserName());
         vo.setStatus(t.getStatus());
-        vo.setStatusLabel(t.getStatus() != null && t.getStatus() == STATUS_PENDING ? "待审批"
+        vo.setStatusLabel(t.getStatus() == null ? "未知"
+                : t.getStatus() == STATUS_PENDING ? "待审批"
                 : t.getStatus() == STATUS_APPROVED ? "已通过" : "已拒绝");
         vo.setOpinion(t.getOpinion());
         vo.setApproveTime(t.getApproveTime() != null

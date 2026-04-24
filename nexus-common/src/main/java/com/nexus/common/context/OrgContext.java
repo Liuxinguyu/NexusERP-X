@@ -1,6 +1,6 @@
 package com.nexus.common.context;
 
-import com.nexus.common.security.datascope.DataScope;
+import com.alibaba.ttl.TransmittableThreadLocal;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -11,11 +11,10 @@ import java.util.List;
  */
 public final class OrgContext {
 
-    private static final ThreadLocal<Long> ORG_ID = new ThreadLocal<>();
-    private static final ThreadLocal<Long> SHOP_ID = new ThreadLocal<>();
-    private static final ThreadLocal<Integer> DATA_SCOPE = new ThreadLocal<>();
-    private static final ThreadLocal<List<Long>> ACCESSIBLE_ORG_IDS = new ThreadLocal<>();
-    private static final ThreadLocal<List<Long>> ACCESSIBLE_SHOP_IDS = new ThreadLocal<>();
+    private static final ThreadLocal<Long> ORG_ID = new TransmittableThreadLocal<>();
+    private static final ThreadLocal<Long> SHOP_ID = new TransmittableThreadLocal<>();
+    private static final ThreadLocal<List<Long>> ACCESSIBLE_ORG_IDS = new TransmittableThreadLocal<>();
+    private static final ThreadLocal<List<Long>> ACCESSIBLE_SHOP_IDS = new TransmittableThreadLocal<>();
 
     private OrgContext() {
     }
@@ -42,22 +41,6 @@ public final class OrgContext {
 
     public static Long getShopId() {
         return SHOP_ID.get();
-    }
-
-    public static void setDataScope(Integer dataScope) {
-        if (dataScope == null) {
-            DATA_SCOPE.remove();
-        } else {
-            DATA_SCOPE.set(dataScope);
-        }
-    }
-
-    public static Integer getDataScope() {
-        return DATA_SCOPE.get();
-    }
-
-    public static DataScope getDataScopeEnum() {
-        return DataScope.fromCode(getDataScope());
     }
 
     public static void setAccessibleOrgIds(List<Long> orgIds) {
@@ -89,7 +72,6 @@ public final class OrgContext {
     public static void clear() {
         ORG_ID.remove();
         SHOP_ID.remove();
-        DATA_SCOPE.remove();
         ACCESSIBLE_ORG_IDS.remove();
         ACCESSIBLE_SHOP_IDS.remove();
     }

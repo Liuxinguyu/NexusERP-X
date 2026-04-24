@@ -3,6 +3,7 @@ package com.nexus.erp.domain.model;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.annotation.Version;
 import com.nexus.common.domain.model.BaseTenantEntity;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -32,4 +33,7 @@ public class FinReceivable extends BaseTenantEntity {
     /** 0未回款 1部分回款 2已结清 */
     private Integer status;
     private String remark;
+
+    @Version
+    private Integer version;
 }

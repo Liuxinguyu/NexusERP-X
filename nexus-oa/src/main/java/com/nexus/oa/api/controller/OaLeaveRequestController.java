@@ -1,6 +1,7 @@
 package com.nexus.oa.api.controller;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.nexus.common.annotation.Idempotent;
 import com.nexus.common.annotation.OpLog;
 import com.nexus.common.core.domain.Result;
 import com.nexus.oa.application.dto.OaDtos;
@@ -8,6 +9,7 @@ import com.nexus.oa.application.service.OaLeaveRequestApplicationService;
 import com.nexus.oa.domain.model.OaLeaveRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -28,6 +30,7 @@ public class OaLeaveRequestController {
     private final OaLeaveRequestApplicationService leaveRequestApplicationService;
 
     @GetMapping("/page")
+    @PreAuthorize("@ss.hasPermi('oa:leave-request:list')")
     public Result<IPage<OaLeaveRequest>> page(
             @RequestParam(defaultValue = "1") long current,
             @RequestParam(defaultValue = "10") long size,
@@ -36,17 +39,21 @@ public class OaLeaveRequestController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("@ss.hasPermi('oa:leave-request:list')")
     public Result<OaLeaveRequest> get(@PathVariable Long id) {
         return Result.ok(leaveRequestApplicationService.getById(id));
     }
 
     @PostMapping
+    @PreAuthorize("isAuthenticated()")
+    @Idempotent(expireSeconds = 3, message = "请假申请正在处理中，请勿重复提交")
     @OpLog(module = "OA请假申请", type = "新增")
     public Result<Long> create(@Valid @RequestBody OaDtos.LeaveRequestCreateRequest req) {
         return Result.ok(leaveRequestApplicationService.create(req));
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("isAuthenticated()")
     @OpLog(module = "OA请假申请", type = "修改")
     public Result<Void> update(@PathVariable Long id, @Valid @RequestBody OaDtos.LeaveRequestUpdateRequest req) {
         leaveRequestApplicationService.update(id, req);
@@ -54,6 +61,7 @@ public class OaLeaveRequestController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("isAuthenticated()")
     @OpLog(module = "OA请假申请", type = "删除")
     public Result<Void> delete(@PathVariable Long id) {
         leaveRequestApplicationService.delete(id);
@@ -61,6 +69,7 @@ public class OaLeaveRequestController {
     }
 
     @PutMapping("/{id}/submit")
+    @PreAuthorize("isAuthenticated()")
     @OpLog(module = "OA请假申请", type = "修改")
     public Result<Void> submit(@PathVariable Long id) {
         leaveRequestApplicationService.submit(id);
@@ -68,6 +77,7 @@ public class OaLeaveRequestController {
     }
 
     @PutMapping("/{id}/approve")
+    @PreAuthorize("@ss.hasPermi('oa:leave-request:approve')")
     @OpLog(module = "OA请假申请", type = "修改")
     public Result<Void> approve(@PathVariable Long id, @Valid @RequestBody OaDtos.LeaveApproveRequest req) {
         leaveRequestApplicationService.approve(id, req);

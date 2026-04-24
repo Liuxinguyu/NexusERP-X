@@ -15,10 +15,15 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 public class ErpReportService {
+    private static final int STATUS_OUTBOUND = 3;
 
     private final ErpSaleOrderMapper saleOrderMapper;
     private final ErpSaleOrderItemMapper saleOrderItemMapper;
@@ -36,6 +41,8 @@ public class ErpReportService {
         Long tenantId = requireTenantId();
         int y = year != null ? year : LocalDate.now().getYear();
         int m = month != null ? month : LocalDate.now().getMonthValue();
+        validateYear(y);
+        validateMonth(m);
 
         LocalDate start = LocalDate.of(y, m, 1);
         LocalDate end = start.withDayOfMonth(start.lengthOfMonth());
@@ -43,7 +50,7 @@ public class ErpReportService {
         LambdaQueryWrapper<ErpSaleOrder> w = new LambdaQueryWrapper<ErpSaleOrder>()
                 .eq(ErpSaleOrder::getTenantId, tenantId)
                 .eq(ErpSaleOrder::getDelFlag, 0)
-                .eq(ErpSaleOrder::getStatus, 1) // 已出库
+                .eq(ErpSaleOrder::getStatus, STATUS_OUTBOUND)
                 .ge(ErpSaleOrder::getCreateTime, start.atStartOfDay())
                 .le(ErpSaleOrder::getCreateTime, end.atTime(23, 59, 59));
 
@@ -65,6 +72,7 @@ public class ErpReportService {
      */
     public List<MonthlyAmountVO> salesTrend(int year) {
         Long tenantId = requireTenantId();
+        validateYear(year);
         LocalDate start = LocalDate.of(year, 1, 1);
         LocalDate end = LocalDate.of(year, 12, 31);
 
@@ -72,7 +80,7 @@ public class ErpReportService {
                 new LambdaQueryWrapper<ErpSaleOrder>()
                         .eq(ErpSaleOrder::getTenantId, tenantId)
                         .eq(ErpSaleOrder::getDelFlag, 0)
-                        .eq(ErpSaleOrder::getStatus, 1)
+                        .eq(ErpSaleOrder::getStatus, STATUS_OUTBOUND)
                         .ge(ErpSaleOrder::getCreateTime, start.atStartOfDay())
                         .le(ErpSaleOrder::getCreateTime, end.atTime(23, 59, 59)));
 
@@ -100,10 +108,20 @@ public class ErpReportService {
      */
     public List<ProductRankVO> productRank(int limit, Integer year, Integer month) {
         Long tenantId = requireTenantId();
+        validateLimit(limit);
+        if (year != null) {
+            validateYear(year);
+        }
+        if (month != null) {
+            validateMonth(month);
+        }
+        if ((year == null) != (month == null)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "year与month必须同时传入");
+        }
         LambdaQueryWrapper<ErpSaleOrder> ow = new LambdaQueryWrapper<ErpSaleOrder>()
                 .eq(ErpSaleOrder::getTenantId, tenantId)
                 .eq(ErpSaleOrder::getDelFlag, 0)
-                .eq(ErpSaleOrder::getStatus, 1);
+                .eq(ErpSaleOrder::getStatus, STATUS_OUTBOUND);
         if (year != null && month != null) {
             LocalDate start = LocalDate.of(year, month, 1);
             LocalDate end = start.withDayOfMonth(start.lengthOfMonth());
@@ -124,18 +142,28 @@ public class ErpReportService {
         Map<Long, java.util.List<ErpSaleOrderItem>> byProduct = items.stream()
                 .collect(java.util.stream.Collectors.groupingBy(ErpSaleOrderItem::getProductId));
 
+        Set<Long> productIds = byProduct.keySet().stream().filter(Objects::nonNull).collect(Collectors.toSet());
+        Map<Long, String> productNameMap = productIds.isEmpty()
+                ? Map.of()
+                : productInfoMapper.selectList(new LambdaQueryWrapper<ErpProductInfo>()
+                        .eq(ErpProductInfo::getTenantId, tenantId)
+                        .eq(ErpProductInfo::getDelFlag, 0)
+                        .in(ErpProductInfo::getId, productIds))
+                .stream()
+                .filter(Objects::nonNull)
+                .collect(Collectors.toMap(ErpProductInfo::getId, ErpProductInfo::getProductName, (a, b) -> a));
+
         return byProduct.entrySet().stream()
                 .map(e -> {
                     Long productId = e.getKey();
                     List<ErpSaleOrderItem> productItems = e.getValue();
-                    ErpProductInfo product = productInfoMapper.selectById(productId);
                     long qty = productItems.stream().mapToLong(ErpSaleOrderItem::getQuantity).sum();
                     BigDecimal amt = productItems.stream()
                             .map(ErpSaleOrderItem::getSubtotal)
                             .reduce(BigDecimal.ZERO, BigDecimal::add);
                     ProductRankVO v = new ProductRankVO();
                     v.setProductId(productId);
-                    v.setProductName(product != null ? product.getProductName() : "未知");
+                    v.setProductName(productNameMap.getOrDefault(productId, "未知商品"));
                     v.setSaleQuantity(qty);
                     v.setSaleAmount(amt);
                     return v;
@@ -150,10 +178,14 @@ public class ErpReportService {
      */
     public List<CustomerRankVO> customerRank(int limit, Integer year) {
         Long tenantId = requireTenantId();
+        validateLimit(limit);
+        if (year != null) {
+            validateYear(year);
+        }
         LambdaQueryWrapper<ErpSaleOrder> w = new LambdaQueryWrapper<ErpSaleOrder>()
                 .eq(ErpSaleOrder::getTenantId, tenantId)
                 .eq(ErpSaleOrder::getDelFlag, 0)
-                .eq(ErpSaleOrder::getStatus, 1)
+                .eq(ErpSaleOrder::getStatus, STATUS_OUTBOUND)
                 .isNotNull(ErpSaleOrder::getCustomerId)
                 .ne(ErpSaleOrder::getCustomerId, 0L);
         if (year != null) {
@@ -168,17 +200,27 @@ public class ErpReportService {
                 .filter(o -> o.getCustomerId() != null)
                 .collect(java.util.stream.Collectors.groupingBy(ErpSaleOrder::getCustomerId));
 
+        Set<Long> customerIds = byCustomer.keySet().stream().filter(Objects::nonNull).collect(Collectors.toSet());
+        Map<Long, String> customerNameMap = customerIds.isEmpty()
+                ? Map.of()
+                : customerMapper.selectList(new LambdaQueryWrapper<ErpCustomer>()
+                        .eq(ErpCustomer::getTenantId, tenantId)
+                        .eq(ErpCustomer::getDelFlag, 0)
+                        .in(ErpCustomer::getId, customerIds))
+                .stream()
+                .filter(Objects::nonNull)
+                .collect(Collectors.toMap(ErpCustomer::getId, ErpCustomer::getName, (a, b) -> a));
+
         return byCustomer.entrySet().stream()
                 .map(e -> {
                     Long customerId = e.getKey();
                     List<ErpSaleOrder> custOrders = e.getValue();
-                    ErpCustomer c = customerMapper.selectById(customerId);
                     BigDecimal amt = custOrders.stream()
                             .map(ErpSaleOrder::getTotalAmount)
                             .reduce(BigDecimal.ZERO, BigDecimal::add);
                     CustomerRankVO v = new CustomerRankVO();
                     v.setCustomerId(customerId);
-                    v.setCustomerName(c != null ? c.getName() : "未知");
+                    v.setCustomerName(customerNameMap.getOrDefault(customerId, "未知客户"));
                     v.setOrderCount((long) custOrders.size());
                     v.setSaleAmount(amt);
                     return v;
@@ -216,22 +258,44 @@ public class ErpReportService {
                 new LambdaQueryWrapper<ErpProductCategory>()
                         .eq(ErpProductCategory::getTenantId, tenantId)
                         .eq(ErpProductCategory::getDelFlag, 0));
+        if (categories.isEmpty()) {
+            return List.of();
+        }
+
+        List<ErpProductInfo> products = productInfoMapper.selectList(
+                new LambdaQueryWrapper<ErpProductInfo>()
+                        .eq(ErpProductInfo::getTenantId, tenantId)
+                        .eq(ErpProductInfo::getDelFlag, 0));
+        Map<Long, List<ErpProductInfo>> productsByCategory = products.stream()
+                .filter(product -> product.getCategoryId() != null)
+                .collect(Collectors.groupingBy(ErpProductInfo::getCategoryId));
+
+        List<Long> productIds = products.stream()
+                .map(ErpProductInfo::getId)
+                .filter(java.util.Objects::nonNull)
+                .toList();
+        Map<Long, Integer> qtyByProductId = productIds.isEmpty()
+                ? Map.of()
+                : stockMapper.selectList(new LambdaQueryWrapper<ErpStock>()
+                        .eq(ErpStock::getTenantId, tenantId)
+                        .eq(ErpStock::getDelFlag, 0)
+                        .in(ErpStock::getProductId, productIds))
+                .stream()
+                .collect(Collectors.groupingBy(
+                        ErpStock::getProductId,
+                        Collectors.summingInt(stock -> stock.getQty() != null ? stock.getQty() : 0)));
 
         return categories.stream().map(cat -> {
-            List<ErpProductInfo> products = productInfoMapper.selectList(
-                    new LambdaQueryWrapper<ErpProductInfo>()
-                            .eq(ErpProductInfo::getTenantId, tenantId)
-                            .eq(ErpProductInfo::getDelFlag, 0)
-                            .eq(ErpProductInfo::getCategoryId, cat.getId()));
-
-            int totalQty = products.stream()
-                    .mapToInt(p -> p.getStockQty() != null ? p.getStockQty() : 0).sum();
-            long productCount = products.size();
+            List<ErpProductInfo> categoryProducts = productsByCategory.getOrDefault(cat.getId(), List.of());
+            int totalQty = categoryProducts.stream()
+                    .map(ErpProductInfo::getId)
+                    .mapToInt(productId -> qtyByProductId.getOrDefault(productId, 0))
+                    .sum();
 
             StockSummaryVO v = new StockSummaryVO();
             v.setCategoryId(cat.getId());
             v.setCategoryName(cat.getName());
-            v.setProductCount(productCount);
+            v.setProductCount((long) categoryProducts.size());
             v.setTotalQty(totalQty);
             return v;
         }).toList();
@@ -241,6 +305,24 @@ public class ErpReportService {
         Long tid = TenantContext.getTenantId();
         if (tid == null) throw new BusinessException(ResultCode.BAD_REQUEST, "缺少租户上下文");
         return tid;
+    }
+
+    private void validateLimit(int limit) {
+        if (limit < 1 || limit > 100) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "limit必须在1-100之间");
+        }
+    }
+
+    private void validateMonth(int month) {
+        if (month < 1 || month > 12) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "month必须在1-12之间");
+        }
+    }
+
+    private void validateYear(int year) {
+        if (year < 2000 || year > 2100) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "year必须在2000-2100之间");
+        }
     }
 
     // ===================== VO =====================

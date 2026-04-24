@@ -6,6 +6,7 @@ import com.nexus.common.core.domain.ResultCode;
 import com.nexus.common.exception.BusinessException;
 import com.nexus.system.application.dto.AuthDtos;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -18,6 +19,7 @@ public class AuthRedisService {
 
     private static final Duration TTL = Duration.ofHours(12);
     private static final Duration PRE_AUTH_TTL = Duration.ofMinutes(10);
+    private static final DefaultRedisScript<String> GET_AND_DELETE_SCRIPT = buildGetAndDeleteScript();
 
     private final RedisTemplate<String, String> redisTemplate;
     private final ObjectMapper objectMapper;
@@ -97,9 +99,18 @@ public class AuthRedisService {
     }
 
     public Optional<PreAuthSession> consumePreAuthSession(String token) {
-        Optional<PreAuthSession> session = getPreAuthSession(token);
-        session.ifPresent(it -> redisTemplate.delete(preAuthKey(token)));
-        return session;
+        if (token == null || token.isBlank()) {
+            return Optional.empty();
+        }
+        String raw = redisTemplate.execute(GET_AND_DELETE_SCRIPT, List.of(preAuthKey(token)));
+        if (raw == null || raw.isBlank()) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(objectMapper.readValue(raw, PreAuthSession.class));
+        } catch (Exception e) {
+            throw new BusinessException(ResultCode.INTERNAL_ERROR.getCode(), "读取预登录缓存失败", e);
+        }
     }
 
     public void clearPreAuthSession(String token) {
@@ -124,6 +135,17 @@ public class AuthRedisService {
 
     private static String preAuthKey(String token) {
         return "nexus:auth:pre:" + token;
+    }
+
+    private static DefaultRedisScript<String> buildGetAndDeleteScript() {
+        DefaultRedisScript<String> script = new DefaultRedisScript<>();
+        script.setResultType(String.class);
+        script.setScriptText("""
+                local v = redis.call('GET', KEYS[1])
+                if v ~= false then redis.call('DEL', KEYS[1]) end
+                return v
+                """);
+        return script;
     }
 
     public record SessionState(Long currentShopId, Integer dataScope, List<Long> accessibleShopIds) {

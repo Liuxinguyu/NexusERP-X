@@ -11,6 +11,8 @@ import {
   userAdminApi,
 } from '../../api/system-crud'
 import { flattenOrgTree } from '../../lib/org-flat'
+import { formatDateTime } from '../../lib/format'
+import { useStaleGuard } from '../../hooks/useStaleGuard'
 import { SYSTEM_PERMS } from '../../lib/system-perms'
 import type { RoleRow, ShopRoleItem, ShopRow, UserRow } from '../../types/system-crud'
 import OrgSidebar from './components/OrgSidebar'
@@ -25,6 +27,7 @@ function parseShopRoles(raw: unknown): ShopRoleItem[] {
 }
 
 type FormErrors = Record<string, string>
+type ShopRoleDraft = ShopRoleItem & { _key: string }
 
 function validateUserForm(
   form: {
@@ -41,11 +44,23 @@ function validateUserForm(
   if (!form.username.trim()) errors.username = '用户名不能为空'
   if (!form.realName.trim()) errors.realName = '姓名不能为空'
   if (isNew && !form.password.trim()) errors.password = '新建用户密码不能为空'
+  if (form.password.trim()) {
+    const pwdError = validatePassword(form.password.trim())
+    if (pwdError) errors.password = pwdError
+  }
   if (!form.mainShopId || form.mainShopId <= 0)
     errors.mainShopId = '⚠️ 主店铺不可为空，否则后端 DataScope 会拦截无权限'
   if (!form.mainOrgId || form.mainOrgId <= 0)
     errors.mainOrgId = '⚠️ 所属部门不可为空，否则后端 DataScope 会拦截无权限'
   return errors
+}
+
+function validatePassword(pwd: string): string | null {
+  if (pwd.length < 8) return '密码至少8位'
+  if (!/[A-Z]/.test(pwd)) return '需包含大写字母'
+  if (!/[a-z]/.test(pwd)) return '需包含小写字母'
+  if (!/\d/.test(pwd)) return '需包含数字'
+  return null
 }
 
 export default function UserManage() {
@@ -55,14 +70,13 @@ export default function UserManage() {
   const [list, setList] = useState<UserRow[]>([])
   const [total, setTotal] = useState(0)
   const [current, setCurrent] = useState(1)
-  const [size] = useState(10)
+  const [size, setSize] = useState(10)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
   // --- search filters ---
   const [usernameQ, setUsernameQ] = useState('')
-  const [phoneQ, setPhoneQ] = useState('')
-  const [statusQ, setStatusQ] = useState<number | undefined>(undefined)
+  const [usernameDraft, setUsernameDraft] = useState('')
   const [deptIdQ, setDeptIdQ] = useState<number | undefined>(undefined)
   const [searchNonce, setSearchNonce] = useState(0)
 
@@ -84,13 +98,15 @@ export default function UserManage() {
     mainOrgId: 0 as number,
   })
   const [formErrors, setFormErrors] = useState<FormErrors>({})
+  const [submitting, setSubmitting] = useState(false)
 
   const [srModal, setSrModal] = useState<{
     open: boolean
     userId: number | null
     username: string
   }>({ open: false, userId: null, username: '' })
-  const [srRows, setSrRows] = useState<ShopRoleItem[]>([])
+  const [srRows, setSrRows] = useState<ShopRoleDraft[]>([])
+  const [srSubmitting, setSrSubmitting] = useState(false)
 
   const [resetPwdModal, setResetPwdModal] = useState<{
     open: boolean
@@ -98,16 +114,20 @@ export default function UserManage() {
     username: string
   }>({ open: false, userId: null, username: '' })
   const [resetPwdValue, setResetPwdValue] = useState('')
+  const [resetPwdError, setResetPwdError] = useState('')
+  const guard = useStaleGuard()
 
   const loadRefs = useCallback(async () => {
     try {
       const s = await shopApi.getShopOptions()
       setShops(Array.isArray(s) ? s : [])
     } catch {
+      toast.error('加载店铺选项失败')
       try {
         const { rows } = await unwrapPage(shopApi.getShopPage({ current: 1, size: 200 }))
         setShops(rows)
       } catch {
+        toast.error('加载店铺分页选项失败')
         setShops([])
       }
     }
@@ -115,10 +135,12 @@ export default function UserManage() {
       const r = await roleApi.options()
       setRoles(Array.isArray(r) ? r : [])
     } catch {
+      toast.error('加载角色选项失败')
       try {
         const { rows } = await unwrapPage(roleApi.page({ current: 1, size: 200 }))
         setRoles(rows)
       } catch {
+        toast.error('加载角色分页选项失败')
         setRoles([])
       }
     }
@@ -126,11 +148,13 @@ export default function UserManage() {
       const tree = await orgApi.tree()
       setOrgOptions(flattenOrgTree(Array.isArray(tree) ? tree : []))
     } catch {
+      toast.error('加载组织选项失败')
       setOrgOptions([])
     }
-  }, [])
+  }, [toast])
 
   const load = useCallback(async () => {
+    const id = guard.nextId()
     setLoading(true)
     setError('')
     try {
@@ -142,14 +166,17 @@ export default function UserManage() {
           orgId: deptIdQ,
         }),
       )
+      if (!guard.isCurrent(id)) return
       setList(rows)
       setTotal(t)
     } catch (e) {
+      if (!guard.isCurrent(id)) return
       setError(e instanceof Error ? e.message : '加载用户失败')
     } finally {
+      if (!guard.isCurrent(id)) return
       setLoading(false)
     }
-  }, [current, size, usernameQ, phoneQ, statusQ, deptIdQ, searchNonce])
+  }, [current, size, usernameQ, deptIdQ, searchNonce, guard])
 
   useEffect(() => {
     void loadRefs()
@@ -202,6 +229,8 @@ export default function UserManage() {
     if (form.password.trim()) {
       body.password = form.password.trim()
     }
+    if (submitting) return
+    setSubmitting(true)
     try {
       if (modal.row?.id != null) {
         await userAdminApi.update(modal.row.id, body)
@@ -209,9 +238,12 @@ export default function UserManage() {
         await userAdminApi.create(body)
       }
       setModal({ open: false, row: null })
+      toast.success('用户已保存')
       await load()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '保存失败')
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -222,6 +254,7 @@ export default function UserManage() {
     if (!ok) return
     try {
       await userAdminApi.remove(row.id)
+      toast.success('用户已删除')
       await load()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '删除失败')
@@ -236,6 +269,7 @@ export default function UserManage() {
     if (!ok) return
     try {
       await userAdminApi.setStatus(row.id, next)
+      toast.success('状态已更新')
       await load()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '更新状态失败')
@@ -247,7 +281,7 @@ export default function UserManage() {
     setError('')
     try {
       const raw = await userAdminApi.getShopRoles(row.id)
-      setSrRows(parseShopRoles(raw))
+      setSrRows(parseShopRoles(raw).map((item) => ({ ...item, _key: crypto.randomUUID() })))
       setSrModal({
         open: true,
         userId: row.id,
@@ -262,6 +296,7 @@ export default function UserManage() {
     setSrRows((r) => [
       ...r,
       {
+        _key: crypto.randomUUID(),
         shopId: Number(shops[0]?.id ?? 0),
         roleId: Number(roles[0]?.id ?? 0),
       },
@@ -280,11 +315,19 @@ export default function UserManage() {
 
   const saveShopRoles = async () => {
     if (srModal.userId == null) return
+    if (srSubmitting) return
+    setSrSubmitting(true)
     try {
-      await userAdminApi.setShopRoles(srModal.userId, srRows)
+      await userAdminApi.setShopRoles(
+        srModal.userId,
+        srRows.map(({ _key, ...rest }) => rest),
+      )
       setSrModal({ open: false, userId: null, username: '' })
+      toast.success('店铺角色已保存')
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '保存店铺角色失败')
+    } finally {
+      setSrSubmitting(false)
     }
   }
 
@@ -298,6 +341,7 @@ export default function UserManage() {
     })
     if (!ok) return
     setResetPwdValue('')
+    setResetPwdError('')
     setResetPwdModal({
       open: true,
       userId: row.id,
@@ -309,9 +353,15 @@ export default function UserManage() {
     if (resetPwdModal.userId == null) return
     const pwd = resetPwdValue.trim()
     if (!pwd) {
-      toast.error('新密码不能为空')
+      setResetPwdError('新密码不能为空')
       return
     }
+    const pwdError = validatePassword(pwd)
+    if (pwdError) {
+      setResetPwdError(pwdError)
+      return
+    }
+    setResetPwdError('')
     try {
       await userAdminApi.resetPwd(resetPwdModal.userId, pwd)
       toast.success(`已重置「${resetPwdModal.username || resetPwdModal.userId}」的密码`)
@@ -329,14 +379,14 @@ export default function UserManage() {
   }
 
   const handleSearch = () => {
+    setUsernameQ(usernameDraft)
     setCurrent(1)
     setSearchNonce((n) => n + 1)
   }
 
   const handleReset = () => {
+    setUsernameDraft('')
     setUsernameQ('')
-    setPhoneQ('')
-    setStatusQ(undefined)
     setDeptIdQ(undefined)
     setCurrent(1)
     setSearchNonce((n) => n + 1)
@@ -382,35 +432,14 @@ export default function UserManage() {
           <label className="text-[10px] font-black text-slate-400 uppercase">用户名</label>
           <input
             placeholder="搜索用户名"
-            value={usernameQ}
-            onChange={(e) => setUsernameQ(e.target.value)}
+            value={usernameDraft}
+            onChange={(e) => setUsernameDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSearch()
+            }}
             className="px-3 py-2 rounded-xl bg-slate-50 ring-1 ring-slate-200 text-sm w-36"
           />
         </div>
-        <div className="space-y-1">
-          <label className="text-[10px] font-black text-slate-400 uppercase">手机号</label>
-          <input
-            placeholder="搜索手机号"
-            value={phoneQ}
-            onChange={(e) => setPhoneQ(e.target.value)}
-            className="px-3 py-2 rounded-xl bg-slate-50 ring-1 ring-slate-200 text-sm w-36"
-          />
-        </div>
-        <div className="space-y-1">
-          <label className="text-[10px] font-black text-slate-400 uppercase">状态</label>
-          <select
-            value={statusQ ?? ''}
-            onChange={(e) =>
-              setStatusQ(e.target.value === '' ? undefined : Number(e.target.value))
-            }
-            className="px-3 py-2 rounded-xl bg-slate-50 ring-1 ring-slate-200 text-sm w-28"
-          >
-            <option value="">全部</option>
-            <option value="1">正常</option>
-            <option value="0">停用</option>
-          </select>
-        </div>
-
         <PermGate perms={[SYSTEM_PERMS.user.query]}>
           <div className="flex gap-2">
             <button
@@ -502,7 +531,7 @@ export default function UserManage() {
                       </span>
                     )}
                   </td>
-                  <td className="px-6 py-3 text-slate-400 text-xs">{u.createTime ?? '—'}</td>
+                  <td className="px-6 py-3 text-slate-400 text-xs">{formatDateTime(u.createTime)}</td>
                   <td className="px-6 py-3 text-right space-x-2">
                     <PermGate perms={[SYSTEM_PERMS.user.edit]}>
                       <button
@@ -548,7 +577,20 @@ export default function UserManage() {
         </table>
         <div className="p-4 flex justify-between items-center border-t border-slate-50 text-xs text-slate-500">
           <span>共 {total} 条</span>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
+            <select
+              value={size}
+              onChange={(e) => {
+                setSize(Number(e.target.value))
+                setCurrent(1)
+              }}
+              className="px-2 py-1 bg-white rounded-lg ring-1 ring-slate-200"
+            >
+              <option value={10}>10条/页</option>
+              <option value={20}>20条/页</option>
+              <option value={50}>50条/页</option>
+            </select>
+            <span>第 {current} / {Math.max(1, Math.ceil(total / size))} 页</span>
             <button
               type="button"
               disabled={current <= 1}
@@ -559,7 +601,7 @@ export default function UserManage() {
             </button>
             <button
               type="button"
-              disabled={current * size >= total}
+              disabled={current >= Math.max(1, Math.ceil(total / size))}
               onClick={() => setCurrent((c) => c + 1)}
               className="px-3 py-1 rounded-lg bg-slate-100 font-bold disabled:opacity-40"
             >
@@ -727,9 +769,10 @@ export default function UserManage() {
               <button
                 type="button"
                 onClick={() => void save()}
+                disabled={submitting}
                 className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold"
               >
-                保存
+                {submitting ? '保存中...' : '保存'}
               </button>
             </div>
         </div>
@@ -749,7 +792,7 @@ export default function UserManage() {
             <div className="flex-1 overflow-y-auto space-y-2 mb-3">
               {srRows.map((row, idx) => (
                 <div
-                  key={idx}
+                  key={row._key}
                   className="flex gap-2 items-center flex-wrap bg-slate-50 p-2 rounded-xl"
                 >
                   <select
@@ -808,9 +851,10 @@ export default function UserManage() {
               <button
                 type="button"
                 onClick={() => void saveShopRoles()}
+                disabled={srSubmitting}
                 className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold"
               >
-                保存分配
+                {srSubmitting ? '保存中...' : '保存分配'}
               </button>
             </div>
         </div>
@@ -838,9 +882,16 @@ export default function UserManage() {
               type="password"
               value={resetPwdValue}
               onChange={(e) => setResetPwdValue(e.target.value)}
+              onBlur={() => {
+                const msg = validatePassword(resetPwdValue.trim())
+                setResetPwdError(resetPwdValue.trim() ? msg ?? '' : '')
+              }}
               className="w-full px-3 py-2 rounded-xl bg-slate-50 ring-1 ring-slate-200 text-sm"
               placeholder="请输入新密码"
             />
+            {resetPwdError ? (
+              <p className="text-[10px] text-rose-600 font-bold">{resetPwdError}</p>
+            ) : null}
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <button

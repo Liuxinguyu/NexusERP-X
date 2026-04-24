@@ -11,6 +11,7 @@ import com.nexus.erp.domain.model.*;
 import com.nexus.erp.infrastructure.mapper.*;
 import com.nexus.common.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -18,7 +19,9 @@ import org.springframework.util.StringUtils;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -40,18 +43,18 @@ public class FinReceivableApplicationService {
 
     // ===================== 分页查询 =====================
 
-    public IPage<FinDtos.ReceivableVO> page(long current, long size, FinDtos.ReceivablePageQuery query) {
+    public IPage<FinDtos.ReceivableVO> page(long current, long size, Long customerId, Integer status, String dateFrom, String dateTo) {
         Long tenantId = requireTenantId();
         Page<FinReceivable> p = new Page<>(current, size);
         LambdaQueryWrapper<FinReceivable> w = new LambdaQueryWrapper<FinReceivable>()
                 .eq(FinReceivable::getTenantId, tenantId)
                 .eq(FinReceivable::getDelFlag, 0)
-                .eq(query.getStatus() != null, FinReceivable::getStatus, query.getStatus())
-                .eq(query.getCustomerId() != null, FinReceivable::getCustomerId, query.getCustomerId())
-                .ge(query.getDateFrom() != null && !query.getDateFrom().isBlank(),
-                        FinReceivable::getCreateTime, query.getDateFrom() + " 00:00:00")
-                .le(query.getDateTo() != null && !query.getDateTo().isBlank(),
-                        FinReceivable::getCreateTime, query.getDateTo() + " 23:59:59")
+                .eq(status != null, FinReceivable::getStatus, status)
+                .eq(customerId != null, FinReceivable::getCustomerId, customerId)
+                .ge(dateFrom != null && !dateFrom.isBlank(),
+                        FinReceivable::getCreateTime, dateFrom + " 00:00:00")
+                .le(dateTo != null && !dateTo.isBlank(),
+                        FinReceivable::getCreateTime, dateTo + " 23:59:59")
                 .orderByDesc(FinReceivable::getId);
         IPage<FinReceivable> result = receivableMapper.selectPage(p, w);
         return result.convert(this::toVO);
@@ -79,13 +82,16 @@ public class FinReceivableApplicationService {
     @Transactional(rollbackFor = Exception.class)
     public Long create(FinDtos.ReceivableCreateRequest req) {
         Long tenantId = requireTenantId();
+        validateAmount(req.getTotalAmount(), "应收总金额");
+        validateSourceRef(tenantId, req.getSourceType(), req.getSourceId());
+        ErpCustomer customer = loadCustomer(req.getCustomerId(), tenantId);
         FinReceivable r = new FinReceivable();
         r.setTenantId(tenantId);
         r.setReceivableNo(nextNo("RC"));
-        r.setSourceType(StringUtils.hasText(req.getSourceType()) ? req.getSourceType() : SOURCE_SALE_ORDER);
-        r.setSourceId(req.getSourceId() != null ? req.getSourceId() : 0L);
-        r.setCustomerId(req.getCustomerId());
-        r.setCustomerName(req.getCustomerName());
+        r.setSourceType(normalizeSourceType(req.getSourceType()));
+        r.setSourceId(req.getSourceId());
+        r.setCustomerId(customer.getId());
+        r.setCustomerName(customer.getName());
         r.setTotalAmount(req.getTotalAmount());
         r.setReceivedAmount(BigDecimal.ZERO);
         r.setPendingAmount(req.getTotalAmount());
@@ -103,12 +109,16 @@ public class FinReceivableApplicationService {
     @Transactional(rollbackFor = Exception.class)
     public Long createFromSaleOrder(Long saleOrderId) {
         Long tenantId = requireTenantId();
+        FinReceivable existing = findBySource(tenantId, SOURCE_SALE_ORDER, saleOrderId);
+        if (existing != null) {
+            return existing.getId();
+        }
+
         ErpSaleOrder order = loadSaleOrder(saleOrderId, tenantId);
         if (order.getCustomerId() == null) {
-            return null; // 无客户不创建应收
+            return null;
         }
-        ErpCustomer customer = customerMapper.selectById(order.getCustomerId());
-        String customerName = customer != null ? customer.getName() : "";
+        ErpCustomer customer = loadCustomer(order.getCustomerId(), tenantId);
 
         FinReceivable r = new FinReceivable();
         r.setTenantId(tenantId);
@@ -116,13 +126,21 @@ public class FinReceivableApplicationService {
         r.setSourceType(SOURCE_SALE_ORDER);
         r.setSourceId(order.getId());
         r.setCustomerId(order.getCustomerId());
-        r.setCustomerName(customerName);
+        r.setCustomerName(customer.getName());
         r.setTotalAmount(order.getTotalAmount());
         r.setReceivedAmount(BigDecimal.ZERO);
         r.setPendingAmount(order.getTotalAmount());
         r.setStatus(STATUS_UNPAID);
-        receivableMapper.insert(r);
-        return r.getId();
+        try {
+            receivableMapper.insert(r);
+            return r.getId();
+        } catch (DuplicateKeyException ex) {
+            FinReceivable duplicate = findBySource(tenantId, SOURCE_SALE_ORDER, saleOrderId);
+            if (duplicate != null) {
+                return duplicate.getId();
+            }
+            throw ex;
+        }
     }
 
     // ===================== 更新应收 =====================
@@ -131,7 +149,7 @@ public class FinReceivableApplicationService {
     public void update(Long id, FinDtos.ReceivableUpdateRequest req) {
         Long tenantId = requireTenantId();
         FinReceivable r = loadReceivable(id, tenantId);
-        if (r.getStatus() == STATUS_SETTLED) {
+        if (Objects.equals(r.getStatus(), STATUS_SETTLED)) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "已结清的单据不可修改");
         }
         r.setInvoiceNo(req.getInvoiceNo());
@@ -144,7 +162,8 @@ public class FinReceivableApplicationService {
     public void delete(Long id) {
         Long tenantId = requireTenantId();
         FinReceivable r = loadReceivable(id, tenantId);
-        if (r.getStatus() != STATUS_UNPAID || r.getReceivedAmount().compareTo(BigDecimal.ZERO) > 0) {
+        if (!Objects.equals(r.getStatus(), STATUS_UNPAID)
+                || (r.getReceivedAmount() != null && r.getReceivedAmount().compareTo(BigDecimal.ZERO) > 0)) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "已有收款记录的单据不可删除");
         }
         receivableMapper.deleteById(id);
@@ -158,15 +177,36 @@ public class FinReceivableApplicationService {
         Long userId = SecurityUtils.currentUserId() != null ? SecurityUtils.currentUserId() : 0L;
         FinReceivable r = loadReceivable(receivableId, tenantId);
 
-        if (r.getStatus() == STATUS_SETTLED) {
+        if (Objects.equals(r.getStatus(), STATUS_SETTLED)) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "该单据已结清，无需再收款");
+        }
+        if (req.getAmount() == null || req.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "收款金额必须大于 0");
         }
         if (req.getAmount().compareTo(r.getPendingAmount()) > 0) {
             throw new BusinessException(ResultCode.BAD_REQUEST,
                     "收款金额不可超过待收金额，当前待收：" + r.getPendingAmount());
         }
 
-        // 插入收款记录
+        // 金额与状态机：received += amount, pending -= amount
+        BigDecimal newReceived = r.getReceivedAmount().add(req.getAmount());
+        BigDecimal newPending = r.getPendingAmount().subtract(req.getAmount());
+        r.setReceivedAmount(newReceived);
+        if (newPending.compareTo(BigDecimal.ZERO) <= 0) {
+            r.setPendingAmount(BigDecimal.ZERO);
+            r.setStatus(STATUS_SETTLED);
+        } else {
+            r.setPendingAmount(newPending);
+            r.setStatus(STATUS_PARTIAL);
+        }
+
+        // 并发阻断：依赖 @Version 乐观锁（updateById 会带 WHERE id=? AND version=?）
+        int rows = receivableMapper.updateById(r);
+        if (rows == 0) {
+            throw new BusinessException(ResultCode.CONFLICT, "账单状态已发生变化，请刷新页面后重试");
+        }
+
+        // 仅在应收主单更新成功后，插入回款记录（同事务内，失败会回滚主单更新）
         FinReceivableRecord record = new FinReceivableRecord();
         record.setTenantId(tenantId);
         record.setReceivableId(receivableId);
@@ -179,14 +219,14 @@ public class FinReceivableApplicationService {
         record.setReceiptUrl(req.getReceiptUrl());
         record.setRemark(req.getRemark());
         recordMapper.insert(record);
+    }
 
-        // 更新应收余额
-        BigDecimal newReceived = r.getReceivedAmount().add(req.getAmount());
-        BigDecimal newPending = r.getTotalAmount().subtract(newReceived);
-        r.setReceivedAmount(newReceived);
-        r.setPendingAmount(newPending.compareTo(BigDecimal.ZERO) < 0 ? BigDecimal.ZERO : newPending);
-        r.setStatus(newPending.compareTo(BigDecimal.ZERO) == 0 ? STATUS_SETTLED : STATUS_PARTIAL);
-        receivableMapper.updateById(r);
+    /**
+     * 兼容命名：登记回款（同 recordReceipt）。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void recordCollection(Long receivableId, FinDtos.ReceivableRecordCreate req) {
+        recordReceipt(receivableId, req);
     }
 
     // ===================== 汇总 =====================
@@ -199,6 +239,11 @@ public class FinReceivableApplicationService {
                 .eq(FinReceivable::getTenantId, tenantId)
                 .eq(FinReceivable::getDelFlag, 0)
                 .eq(customerId != null, FinReceivable::getCustomerId, customerId);
+        MonthRange range = parseMonthRangeOrThrow(month, "month");
+        if (range != null) {
+            w.ge(FinReceivable::getCreateTime, range.start)
+             .lt(FinReceivable::getCreateTime, range.endExclusive);
+        }
 
         List<FinReceivable> list = receivableMapper.selectList(w);
 
@@ -208,11 +253,11 @@ public class FinReceivableApplicationService {
         long unpaid = 0, partPaid = 0, settled = 0;
 
         for (FinReceivable r : list) {
-            totalReceivable = totalReceivable.add(r.getTotalAmount());
-            totalReceived = totalReceived.add(r.getReceivedAmount());
-            totalPending = totalPending.add(r.getPendingAmount());
-            if (r.getStatus() == STATUS_UNPAID) unpaid++;
-            else if (r.getStatus() == STATUS_PARTIAL) partPaid++;
+            totalReceivable = totalReceivable.add(r.getTotalAmount() != null ? r.getTotalAmount() : BigDecimal.ZERO);
+            totalReceived = totalReceived.add(r.getReceivedAmount() != null ? r.getReceivedAmount() : BigDecimal.ZERO);
+            totalPending = totalPending.add(r.getPendingAmount() != null ? r.getPendingAmount() : BigDecimal.ZERO);
+            if (Objects.equals(r.getStatus(), STATUS_UNPAID)) unpaid++;
+            else if (Objects.equals(r.getStatus(), STATUS_PARTIAL)) partPaid++;
             else settled++;
         }
         s.setTotalReceivable(totalReceivable);
@@ -224,7 +269,33 @@ public class FinReceivableApplicationService {
         return s;
     }
 
+    private static MonthRange parseMonthRangeOrThrow(String month, String fieldLabel) {
+        if (month == null || month.isBlank()) {
+            return null;
+        }
+        try {
+            YearMonth ym = YearMonth.parse(month.trim(), DateTimeFormatter.ofPattern("yyyy-MM"));
+            LocalDateTime start = ym.atDay(1).atStartOfDay();
+            LocalDateTime endExclusive = ym.plusMonths(1).atDay(1).atStartOfDay();
+            return new MonthRange(start, endExclusive);
+        } catch (DateTimeParseException ex) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, fieldLabel + "格式非法，必须为yyyy-MM");
+        }
+    }
+
+    private record MonthRange(LocalDateTime start, LocalDateTime endExclusive) {
+    }
+
     // ===================== 私有方法 =====================
+
+    private FinReceivable findBySource(Long tenantId, String sourceType, Long sourceId) {
+        return receivableMapper.selectOne(new LambdaQueryWrapper<FinReceivable>()
+                .eq(FinReceivable::getTenantId, tenantId)
+                .eq(FinReceivable::getDelFlag, 0)
+                .eq(FinReceivable::getSourceType, sourceType)
+                .eq(FinReceivable::getSourceId, sourceId)
+                .last("LIMIT 1"));
+    }
 
     private FinReceivable loadReceivable(Long id, Long tenantId) {
         FinReceivable r = receivableMapper.selectById(id);
@@ -242,6 +313,36 @@ public class FinReceivableApplicationService {
             throw new BusinessException(ResultCode.NOT_FOUND, "销售单不存在");
         }
         return o;
+    }
+
+    private ErpCustomer loadCustomer(Long id, Long tenantId) {
+        ErpCustomer customer = customerMapper.selectById(id);
+        if (customer == null || !Objects.equals(customer.getTenantId(), tenantId)
+                || (customer.getDelFlag() != null && customer.getDelFlag() == 1)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "客户不存在或无权访问");
+        }
+        return customer;
+    }
+
+    private void validateAmount(BigDecimal amount, String fieldName) {
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) < 0) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, fieldName + "必须大于等于0");
+        }
+    }
+
+    private String normalizeSourceType(String sourceType) {
+        return StringUtils.hasText(sourceType) ? sourceType.trim().toLowerCase() : SOURCE_SALE_ORDER;
+    }
+
+    private void validateSourceRef(Long tenantId, String sourceType, Long sourceId) {
+        String normalizedSourceType = normalizeSourceType(sourceType);
+        if (!SOURCE_SALE_ORDER.equals(normalizedSourceType)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "sourceType非法，仅支持 sale_order");
+        }
+        if (sourceId == null || sourceId <= 0) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "sourceId不能为空且必须大于0");
+        }
+        loadSaleOrder(sourceId, tenantId);
     }
 
     private FinDtos.ReceivableVO toVO(FinReceivable r) {

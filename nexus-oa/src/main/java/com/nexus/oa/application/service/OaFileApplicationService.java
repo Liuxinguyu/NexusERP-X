@@ -10,6 +10,8 @@ import com.nexus.oa.domain.model.OaFileFolder;
 import com.nexus.oa.infrastructure.mapper.OaFileFolderMapper;
 import com.nexus.oa.infrastructure.mapper.OaFileMapper;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,6 +34,8 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class OaFileApplicationService {
+
+    private static final Logger log = LoggerFactory.getLogger(OaFileApplicationService.class);
 
     private static final DateTimeFormatter DT_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final Set<String> ALLOWED_EXTENSIONS = Set.of(".jpg", ".png", ".pdf", ".docx", ".xlsx", ".xls");
@@ -165,6 +169,11 @@ public class OaFileApplicationService {
     public String getFilePath(Long id) {
         Long tenantId = requireTenantId();
         OaFile f = loadFile(id, tenantId);
+        Long currentUserId = requireUserId();
+        Integer visibility = f.getVisibility();
+        if (!Objects.equals(visibility, 1) && !Objects.equals(f.getOwnerUserId(), currentUserId)) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "无权访问该文件");
+        }
         return uploadDir + "/" + tenantId + "/" + f.getFileKey();
     }
 
@@ -189,7 +198,7 @@ public class OaFileApplicationService {
             Path path = Paths.get(uploadDir, tenantId.toString(), f.getFileKey());
             Files.deleteIfExists(path);
         } catch (java.io.IOException e) {
-            // 文件不存在或无法删除，记录日志但不影响业务
+            log.warn("物理文件删除失败 [tenantId={}, fileKey={}]: {}", tenantId, f.getFileKey(), e.getMessage());
         }
         fileMapper.deleteById(id);
     }
@@ -229,7 +238,6 @@ public class OaFileApplicationService {
         vo.setId(f.getId());
         vo.setFolderId(f.getFolderId());
         vo.setFileName(f.getFileName());
-        vo.setFileKey(f.getFileKey());
         vo.setFileSize(f.getFileSize());
         vo.setFileType(f.getFileType());
         vo.setDownloadCount(f.getDownloadCount());
@@ -280,7 +288,6 @@ public class OaFileApplicationService {
         private Long id;
         private Long folderId;
         private String fileName;
-        private String fileKey;
         private Long fileSize;
         private String fileType;
         private Integer downloadCount;

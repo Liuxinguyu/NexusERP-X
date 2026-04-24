@@ -10,10 +10,10 @@ package com.nexus.common.security.jwt;
 public interface OnlineTokenValidator {
 
     /**
-     * 检查给定的 raw JWT token 是否仍然在线（有效）。
+     * 检查给定 token 的 jti 是否仍然在线（有效）。
      *
-     * @param rawJwt 不含 "Bearer " 前缀的原始 JWT 字符串
+     * @param jti JWT 标准字段 jti（Token ID）
      * @return true 表示 token 在线有效，false 表示已被注销/强退
      */
-    boolean isTokenOnline(String rawJwt);
+    boolean isTokenOnline(String jti);
 }

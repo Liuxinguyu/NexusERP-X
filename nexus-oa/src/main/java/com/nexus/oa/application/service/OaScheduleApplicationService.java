@@ -36,10 +36,10 @@ public class OaScheduleApplicationService {
                         .eq(OaSchedule::getCreatorUserId, userId)
                         .or()
                         .eq(OaSchedule::getVisibility, 1))
-                .ge(startDate != null && !startDate.isBlank(),
-                        OaSchedule::getStartTime, startDate + " 00:00:00")
-                .le(endDate != null && !endDate.isBlank(),
-                        OaSchedule::getEndTime, endDate + " 23:59:59")
+                .le(startDate != null && !startDate.isBlank(),
+                        OaSchedule::getStartTime, endDate + " 23:59:59")
+                .ge(endDate != null && !endDate.isBlank(),
+                        OaSchedule::getEndTime, startDate + " 00:00:00")
                 .orderByAsc(OaSchedule::getStartTime);
         return scheduleMapper.selectList(w).stream().map(this::toVO).toList();
     }

@@ -56,14 +56,14 @@ public class LoginCaptchaValidator {
             throw new BusinessException(ResultCode.BAD_REQUEST, "请输入验证码");
         }
 
-        String trimmed = captchaInput.trim();
+        String trimmed = captchaInput.trim().toUpperCase();
 
         // 3. Redis 中查找验证码
         if (StringUtils.hasText(captchaKey)) {
             String redisKey = CAPTCHA_PREFIX + captchaKey;
             String expected = redisTemplate.opsForValue().get(redisKey);
 
-            if (StringUtils.hasText(expected) && expected.equalsIgnoreCase(trimmed)) {
+            if (StringUtils.hasText(expected) && expected.equals(trimmed)) {
                 // 验证成功后删除验证码（一次性使用）
                 redisTemplate.delete(redisKey);
                 log.debug("验证码校验成功，已删除 key={}", redisKey);
@@ -71,14 +71,17 @@ public class LoginCaptchaValidator {
             }
         }
 
-        // 4. 验证码不匹配
+        // 4. 验证码不匹配 — 删除以防暴力破解
+        if (StringUtils.hasText(captchaKey)) {
+            redisTemplate.delete(CAPTCHA_PREFIX + captchaKey);
+        }
         log.warn("验证码错误或已过期：captchaKey={}, tenantId={}", captchaKey, tenantId);
         throw new BusinessException(ResultCode.BAD_REQUEST, "验证码错误或已过期");
     }
 
     /**
      * 判断验证码校验是否启用。
-     * 优先级：配置文件 > 数据库配置 > 默认 false（生产环境应默认开启）
+     * 优先级：配置文件 > 数据库配置 > 默认 true（fail-closed，数据库异常时保持安全）
      */
     private boolean resolveEnabled(Long tenantId) {
         // 显式配置优先
@@ -89,8 +92,8 @@ public class LoginCaptchaValidator {
         try {
             return configService.getBoolConfig(tenantId, "sys.account.captchaEnabled");
         } catch (Exception e) {
-            log.warn("读取验证码配置失败，默认关闭校验，tenantId={}", tenantId, e);
-            return false;
+            log.warn("读取验证码配置失败，默认开启校验（fail-closed），tenantId={}", tenantId, e);
+            return true;
         }
     }
 }

@@ -157,4 +157,17 @@ public final class ErpFoundationDtos {
         private String warehouseName;
         private Integer qty;
     }
+
+    @Data
+    public static class SupplierVO implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        private Long id;
+        private String supplierCode;
+        private String supplierName;
+        private String contactName;
+        private String phone;
+        private String email;
+        private Integer status;
+    }
 }

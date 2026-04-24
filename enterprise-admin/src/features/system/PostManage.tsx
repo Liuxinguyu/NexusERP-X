@@ -3,24 +3,27 @@ import { postApi, unwrapPage } from '../../api/system-crud'
 import { useConfirm } from '../../components/ConfirmDialog'
 import Modal from '../../components/Modal'
 import { useToast } from '../../components/Toast'
-import { PermGate } from '../../context/PermissionsContext'
+import { PermGate, usePermissions } from '../../context/PermissionsContext'
 import { SYSTEM_PERMS } from '../../lib/system-perms'
+import { useStaleGuard } from '../../hooks/useStaleGuard'
 import type { PostRow } from '../../types/system-crud'
 
 export default function PostManage() {
   const toast = useToast()
   const confirm = useConfirm()
+  const { can } = usePermissions()
 
   const [list, setList] = useState<PostRow[]>([])
   const [total, setTotal] = useState(0)
   const [current, setCurrent] = useState(1)
-  const [size] = useState(10)
+  const [size, setSize] = useState(10)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
   // --- search ---
   const [postCodeQ, setPostCodeQ] = useState('')
   const [postNameQ, setPostNameQ] = useState('')
+  const [draft, setDraft] = useState({ postCode: '', postName: '' })
   const [searchNonce, setSearchNonce] = useState(0)
 
   // --- modal ---
@@ -35,8 +38,11 @@ export default function PostManage() {
     status: 1,
   })
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
+  const [submitting, setSubmitting] = useState(false)
+  const guard = useStaleGuard()
 
   const load = useCallback(async () => {
+    const id = guard.nextId()
     setLoading(true)
     setError('')
     try {
@@ -48,14 +54,17 @@ export default function PostManage() {
           postName: postNameQ.trim() || undefined,
         }),
       )
+      if (!guard.isCurrent(id)) return
       setList(rows)
       setTotal(t)
     } catch (e) {
+      if (!guard.isCurrent(id)) return
       setError(e instanceof Error ? e.message : '加载岗位失败')
     } finally {
+      if (!guard.isCurrent(id)) return
       setLoading(false)
     }
-  }, [current, size, postCodeQ, postNameQ, searchNonce])
+  }, [current, size, postCodeQ, postNameQ, searchNonce, guard])
 
   useEffect(() => {
     void load()
@@ -96,6 +105,8 @@ export default function PostManage() {
       sort: form.sort,
       status: form.status,
     }
+    if (submitting) return
+    setSubmitting(true)
     try {
       if (modal.row?.id != null) {
         await postApi.update(modal.row.id, body)
@@ -103,9 +114,12 @@ export default function PostManage() {
         await postApi.create(body)
       }
       setModal({ open: false, row: null })
+      toast.success('岗位已保存')
       await load()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '保存失败')
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -120,6 +134,7 @@ export default function PostManage() {
     if (!ok) return
     try {
       await postApi.remove(row.id)
+      toast.success('岗位已删除')
       await load()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '删除失败')
@@ -127,15 +142,26 @@ export default function PostManage() {
   }
 
   const handleSearch = () => {
+    setPostCodeQ(draft.postCode)
+    setPostNameQ(draft.postName)
     setCurrent(1)
     setSearchNonce((n) => n + 1)
   }
 
   const handleReset = () => {
+    setDraft({ postCode: '', postName: '' })
     setPostCodeQ('')
     setPostNameQ('')
     setCurrent(1)
     setSearchNonce((n) => n + 1)
+  }
+
+  if (!can(SYSTEM_PERMS.post.query)) {
+    return (
+      <div className="bg-white p-10 rounded-[2.5rem] shadow-sm ring-1 ring-slate-100 text-center text-slate-500 font-bold">
+        无权限访问：岗位管理
+      </div>
+    )
   }
 
   return (
@@ -166,8 +192,11 @@ export default function PostManage() {
           <label className="text-[10px] font-black text-slate-400 uppercase">岗位编码</label>
           <input
             placeholder="搜索编码"
-            value={postCodeQ}
-            onChange={(e) => setPostCodeQ(e.target.value)}
+            value={draft.postCode}
+            onChange={(e) => setDraft((prev) => ({ ...prev, postCode: e.target.value }))}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSearch()
+            }}
             className="px-3 py-2 rounded-xl bg-slate-50 ring-1 ring-slate-200 text-sm w-36"
           />
         </div>
@@ -175,13 +204,29 @@ export default function PostManage() {
           <label className="text-[10px] font-black text-slate-400 uppercase">岗位名称</label>
           <input
             placeholder="搜索名称"
-            value={postNameQ}
-            onChange={(e) => setPostNameQ(e.target.value)}
+            value={draft.postName}
+            onChange={(e) => setDraft((prev) => ({ ...prev, postName: e.target.value }))}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSearch()
+            }}
             className="px-3 py-2 rounded-xl bg-slate-50 ring-1 ring-slate-200 text-sm w-36"
           />
         </div>
         <PermGate perms={[SYSTEM_PERMS.post.query]}>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
+            <select
+              value={size}
+              onChange={(e) => {
+                setSize(Number(e.target.value))
+                setCurrent(1)
+              }}
+              className="px-2 py-1 bg-white rounded-lg ring-1 ring-slate-200"
+            >
+              <option value={10}>10条/页</option>
+              <option value={20}>20条/页</option>
+              <option value={50}>50条/页</option>
+            </select>
+            <span>第 {current} / {Math.max(1, Math.ceil(total / size))} 页</span>
             <button
               type="button"
               onClick={handleSearch}
@@ -286,7 +331,7 @@ export default function PostManage() {
             </button>
             <button
               type="button"
-              disabled={current * size >= total}
+              disabled={current >= Math.max(1, Math.ceil(total / size))}
               onClick={() => setCurrent((c) => c + 1)}
               className="px-3 py-1 rounded-lg bg-slate-100 font-bold disabled:opacity-40"
             >
@@ -368,9 +413,10 @@ export default function PostManage() {
             <button
               type="button"
               onClick={() => void save()}
+                disabled={submitting}
               className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold"
             >
-              保存
+                {submitting ? '保存中...' : '保存'}
             </button>
           </div>
         </div>

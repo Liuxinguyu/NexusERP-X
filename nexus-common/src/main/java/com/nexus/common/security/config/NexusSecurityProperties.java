@@ -2,7 +2,9 @@ package com.nexus.common.security.config;
 
 import jakarta.annotation.PostConstruct;
 import lombok.Data;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.core.env.Environment;
 import org.springframework.util.StringUtils;
 
 @Data
@@ -15,6 +17,9 @@ public class NexusSecurityProperties {
      * 仅用于本地联调：放行所有以 /api/v1/ 开头的接口。生产环境必须设为 false，并依赖 JWT + authenticated()。
      */
     private boolean localDevPermitAllApi = false;
+
+    @Autowired
+    private Environment environment;
 
     private String[] permitAllPatterns = new String[]{
             "/actuator/**",
@@ -38,6 +43,15 @@ public class NexusSecurityProperties {
 
     @PostConstruct
     public void validateJwtSecret() {
+        if (localDevPermitAllApi && environment != null) {
+            for (String profile : environment.getActiveProfiles()) {
+                if (profile.contains("prod")) {
+                    throw new IllegalStateException(
+                            "nexus.security.local-dev-permit-all-api=true 在生产 profile（" + profile + "）中被禁止");
+                }
+            }
+        }
+
         if (!StringUtils.hasText(jwt.getSecret())) {
             throw new IllegalStateException(
                     "nexus.security.jwt.secret 必须配置，请检查 application.yml 或环境变量");

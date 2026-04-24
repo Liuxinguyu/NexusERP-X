@@ -1,42 +1,67 @@
 import { useCallback, useEffect, useState } from 'react'
 import { stockApi, warehouseApi } from '../../api/erp-crud'
 import { pickPageRecords } from '../../lib/http-helpers'
+import { useToast } from '../../components/Toast'
+import { usePermissions } from '../../context/PermissionsContext'
+import { ERP_PERMS } from '../../lib/business-perms'
+import { useStaleGuard } from '../../hooks/useStaleGuard'
 import type { StockRow, WarehouseRow } from '../../types/erp-crud'
 
 export default function StockQuery() {
+  const toast = useToast()
+  const { can } = usePermissions()
   const [list, setList] = useState<StockRow[]>([])
   const [total, setTotal] = useState(0)
   const [current, setCurrent] = useState(1)
   const size = 20
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [productName, setProductName] = useState('')
+  const [query, setQuery] = useState({ productName: '' })
+  const [draft, setDraft] = useState({ productName: '' })
   const [warehouseId, setWarehouseId] = useState<number | undefined>()
   const [warehouses, setWarehouses] = useState<WarehouseRow[]>([])
+  const guard = useStaleGuard()
 
   useEffect(() => {
-    warehouseApi.page({ current: 1, size: 100 }).then(res => setWarehouses(pickPageRecords(res))).catch(() => {})
+    warehouseApi.page({ current: 1, size: 100 }).then(res => setWarehouses(pickPageRecords(res))).catch(() => {
+      toast.error('加载仓库列表失败')
+    })
   }, [])
 
   const loadData = useCallback(async () => {
+    const id = guard.nextId()
     setLoading(true)
     setError('')
     try {
-      const res = await stockApi.page({ current, size, productName: productName.trim() || undefined, warehouseId })
+      const res = await stockApi.page({ current, size, productName: query.productName.trim() || undefined, warehouseId })
+      if (!guard.isCurrent(id)) return
       setList(pickPageRecords(res))
       setTotal(res.total ?? 0)
-    } catch { setList([]); setTotal(0); setError('加载库存数据失败，请重试') }
-    finally { setLoading(false) }
-  }, [current, productName, warehouseId])
+    } catch {
+      if (!guard.isCurrent(id)) return
+      toast.error('加载库存数据失败')
+      setList([])
+      setTotal(0)
+      setError('加载库存数据失败，请重试')
+    }
+    finally {
+      if (!guard.isCurrent(id)) return
+      setLoading(false)
+    }
+  }, [current, query.productName, warehouseId, guard, toast])
 
   useEffect(() => { void loadData() }, [loadData])
+
+  if (!can(ERP_PERMS.stock.list)) {
+    return <div className="p-8 text-center text-slate-400 font-bold">暂无权限访问</div>
+  }
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="bg-white rounded-[2.5rem] p-6 shadow-sm ring-1 ring-slate-100 flex flex-wrap gap-4 items-end">
         <div className="space-y-1">
           <label className="text-[10px] font-black text-slate-400 uppercase">产品名称</label>
-          <input value={productName} onChange={e => setProductName(e.target.value)} placeholder="搜索产品"
+          <input value={draft.productName} onChange={e => setDraft({ productName: e.target.value })} placeholder="搜索产品"
             className="px-4 py-2 rounded-xl bg-slate-50 ring-1 ring-slate-200 text-sm font-bold w-48 focus:ring-indigo-500" />
         </div>
         <div className="space-y-1">
@@ -47,7 +72,7 @@ export default function StockQuery() {
             {warehouses.map(w => <option key={w.id} value={w.id}>{w.warehouseName}</option>)}
           </select>
         </div>
-        <button onClick={() => { setCurrent(1); void loadData() }} className="px-6 py-2 bg-indigo-600 text-white rounded-xl text-xs font-black hover:bg-indigo-500 transition-all">查询</button>
+        <button onClick={() => { setCurrent(1); setQuery({ productName: draft.productName }) }} className="px-6 py-2 bg-indigo-600 text-white rounded-xl text-xs font-black hover:bg-indigo-500 transition-all">查询</button>
       </div>
 
       <div className="bg-white rounded-[2.5rem] shadow-sm ring-1 ring-slate-100 overflow-hidden">

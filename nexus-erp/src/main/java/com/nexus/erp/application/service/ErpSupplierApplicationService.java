@@ -24,7 +24,7 @@ public class ErpSupplierApplicationService {
         this.supplierMapper = supplierMapper;
     }
 
-    public IPage<ErpSupplier> page(long current, long size, String supplierName) {
+    public IPage<ErpFoundationDtos.SupplierVO> page(long current, long size, String supplierName) {
         Long tenantId = requireTenantId();
         Page<ErpSupplier> p = new Page<>(current, size);
         LambdaQueryWrapper<ErpSupplier> w = new LambdaQueryWrapper<ErpSupplier>()
@@ -32,7 +32,7 @@ public class ErpSupplierApplicationService {
                 .eq(ErpSupplier::getDelFlag, 0)
                 .like(StringUtils.hasText(supplierName), ErpSupplier::getSupplierName, supplierName)
                 .orderByDesc(ErpSupplier::getId);
-        return supplierMapper.selectPage(p, w);
+        return supplierMapper.selectPage(p, w).convert(this::toVO);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -103,5 +103,17 @@ public class ErpSupplierApplicationService {
             throw new BusinessException(ResultCode.BAD_REQUEST, "缺少租户上下文");
         }
         return tid;
+    }
+
+    private ErpFoundationDtos.SupplierVO toVO(ErpSupplier e) {
+        ErpFoundationDtos.SupplierVO vo = new ErpFoundationDtos.SupplierVO();
+        vo.setId(e.getId());
+        vo.setSupplierCode(e.getSupplierCode());
+        vo.setSupplierName(e.getSupplierName());
+        vo.setContactName(e.getContactName());
+        vo.setPhone(e.getPhone());
+        vo.setEmail(e.getEmail());
+        vo.setStatus(e.getStatus());
+        return vo;
     }
 }

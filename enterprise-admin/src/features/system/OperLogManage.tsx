@@ -4,8 +4,10 @@ import type { OperLogRow } from '../../types/system-crud'
 import { useToast } from '../../components/Toast'
 import { useConfirm } from '../../components/ConfirmDialog'
 import { PermGate, usePermissions } from '../../context/PermissionsContext'
+import { formatDateTime } from '../../lib/format'
 import { SYSTEM_PERMS } from '../../lib/system-perms'
 import Modal from '../../components/Modal'
+import { useStaleGuard } from '../../hooks/useStaleGuard'
 
 interface Query {
   current: number
@@ -32,8 +34,11 @@ export default function OperLogManage() {
     username: '',
     status: undefined,
   })
+  const [draft, setDraft] = useState({ module: '', username: '', status: '' })
+  const guard = useStaleGuard()
 
   const loadData = useCallback(async (q: Query) => {
+    const id = guard.nextId()
     setLoading(true)
     try {
       const { rows, total: t } = await unwrapPage(
@@ -45,27 +50,37 @@ export default function OperLogManage() {
           status: q.status,
         }),
       )
+      if (!guard.isCurrent(id)) return
       setList(rows)
       setTotal(t)
     } catch (e) {
+      if (!guard.isCurrent(id)) return
       setList([])
       setTotal(0)
       toast.error(e instanceof Error ? e.message : '加载操作日志失败')
     } finally {
+      if (!guard.isCurrent(id)) return
       setLoading(false)
     }
-  }, [])
+  }, [guard, toast])
 
   useEffect(() => {
     void loadData(query)
   }, [query, loadData])
 
   const handleSearch = () => {
-    setQuery((prev) => ({ ...prev, current: 1 }))
+    setQuery((prev) => ({
+      ...prev,
+      current: 1,
+      module: draft.module.trim(),
+      username: draft.username.trim(),
+      status: draft.status === '' ? undefined : Number(draft.status),
+    }))
   }
 
   const handleReset = () => {
     setQuery({ current: 1, size: 10, module: '', username: '', status: undefined })
+    setDraft({ module: '', username: '', status: '' })
   }
 
   const changePage = (next: number) => {
@@ -84,8 +99,8 @@ export default function OperLogManage() {
       await operLogApi.clean()
       toast.success('操作日志已清空')
       setQuery((prev) => ({ ...prev, current: 1 }))
-    } catch {
-      toast.error('清空失败，请重试')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '清空失败')
     }
   }
 
@@ -129,8 +144,11 @@ export default function OperLogManage() {
           <label className="text-[10px] font-black text-slate-400 uppercase">操作模块</label>
           <input
             placeholder="搜索模块"
-            value={query.module}
-            onChange={(e) => setQuery({ ...query, module: e.target.value })}
+            value={draft.module}
+            onChange={(e) => setDraft((prev) => ({ ...prev, module: e.target.value }))}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSearch()
+            }}
             className="px-3 py-2 rounded-xl bg-slate-50 ring-1 ring-slate-200 text-sm w-44 font-bold focus:ring-indigo-500"
           />
         </div>
@@ -138,16 +156,22 @@ export default function OperLogManage() {
           <label className="text-[10px] font-black text-slate-400 uppercase">操作账号</label>
           <input
             placeholder="搜索用户名"
-            value={query.username}
-            onChange={(e) => setQuery({ ...query, username: e.target.value })}
+            value={draft.username}
+            onChange={(e) => setDraft((prev) => ({ ...prev, username: e.target.value }))}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSearch()
+            }}
             className="px-3 py-2 rounded-xl bg-slate-50 ring-1 ring-slate-200 text-sm w-44 font-bold focus:ring-indigo-500"
           />
         </div>
         <div className="space-y-1">
           <label className="text-[10px] font-black text-slate-400 uppercase">操作状态</label>
           <select
-            value={query.status ?? ''}
-            onChange={(e) => setQuery({ ...query, status: e.target.value === '' ? undefined : Number(e.target.value) })}
+            value={draft.status}
+            onChange={(e) => setDraft((prev) => ({ ...prev, status: e.target.value }))}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSearch()
+            }}
             className="px-3 py-2 rounded-xl bg-slate-50 ring-1 ring-slate-200 text-sm w-32 font-bold focus:ring-indigo-500"
           >
             <option value="">全部</option>
@@ -211,7 +235,7 @@ export default function OperLogManage() {
                     </span>
                   </td>
                   <td className="px-8 py-5 text-slate-500 text-xs tabular-nums">{row.costTime != null ? `${row.costTime}ms` : '--'}</td>
-                  <td className="px-8 py-5 text-slate-500 text-xs tabular-nums">{row.createTime || '--'}</td>
+                  <td className="px-8 py-5 text-slate-500 text-xs tabular-nums">{formatDateTime(row.createTime)}</td>
                 </tr>
               ))
             )}
@@ -221,7 +245,23 @@ export default function OperLogManage() {
         {/* Pagination */}
         <div className="px-8 py-4 bg-slate-50/50 border-t border-slate-50 flex justify-between items-center text-xs font-bold text-slate-500">
           <div>共检索到 <span className="text-slate-900">{total}</span> 条操作记录</div>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
+            <select
+              value={query.size}
+              onChange={(e) =>
+                setQuery((prev) => ({
+                  ...prev,
+                  current: 1,
+                  size: Number(e.target.value),
+                }))
+              }
+              className="px-2 py-1 bg-white rounded-lg ring-1 ring-slate-200"
+            >
+              <option value={10}>10条/页</option>
+              <option value={20}>20条/页</option>
+              <option value={50}>50条/页</option>
+            </select>
+            <span>第 {query.current} / {Math.max(1, Math.ceil(total / query.size))} 页</span>
             <button
               onClick={() => changePage(query.current - 1)}
               disabled={query.current <= 1}
@@ -234,7 +274,7 @@ export default function OperLogManage() {
             </span>
             <button
               onClick={() => changePage(query.current + 1)}
-              disabled={query.current * query.size >= total}
+              disabled={query.current >= Math.max(1, Math.ceil(total / query.size))}
               className="px-3 py-1 bg-white rounded-lg ring-1 ring-slate-200 disabled:opacity-50 hover:bg-slate-50"
             >
               后页
@@ -280,7 +320,7 @@ export default function OperLogManage() {
               </div>
               <div>
                 <div className="text-[10px] font-black text-slate-400 uppercase mb-1">操作时间</div>
-                <div className="font-bold text-slate-500 tabular-nums">{detail.createTime || '--'}</div>
+                <div className="font-bold text-slate-500 tabular-nums">{formatDateTime(detail.createTime)}</div>
               </div>
             </div>
 

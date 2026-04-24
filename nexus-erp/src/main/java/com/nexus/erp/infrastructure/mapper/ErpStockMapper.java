@@ -5,7 +5,6 @@ import com.nexus.erp.domain.model.ErpStock;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
-import org.apache.ibatis.annotations.Update;
 
 import java.util.List;
 import java.util.Map;
@@ -17,11 +16,15 @@ public interface ErpStockMapper extends BaseMapper<ErpStock> {
      * 乐观锁扣减库存：qty >= deductQty 时才扣减，返回影响行数。
      * 0 表示库存不足，扣减失败。
      */
-    @Update("UPDATE erp_stock SET qty = qty - #{deductQty} WHERE tenant_id = #{tenantId} AND product_id = #{productId} AND warehouse_id = #{warehouseId} AND qty >= #{deductQty}")
     int deductStock(@Param("tenantId") Long tenantId,
                     @Param("productId") Long productId,
                     @Param("warehouseId") Long warehouseId,
-                    @Param("deductQty") int deductQty);
+                    @Param("num") int num);
+
+    int upsertIncreaseStock(@Param("tenantId") Long tenantId,
+                            @Param("productId") Long productId,
+                            @Param("warehouseId") Long warehouseId,
+                            @Param("num") int num);
 
     /**
      * 库存预警查询：当前库存低于商品最低库存的记录

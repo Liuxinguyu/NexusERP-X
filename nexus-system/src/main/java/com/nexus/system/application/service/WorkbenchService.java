@@ -21,14 +21,10 @@ public class WorkbenchService {
         Long userId = SecurityUtils.currentUserId();
 
         WorkbenchDtos.DashboardSummary summary = new WorkbenchDtos.DashboardSummary();
-        summary.setTodaySaleAmount(
-                workbenchMapper.todaySaleAmount(tenantId) != null
-                        ? workbenchMapper.todaySaleAmount(tenantId)
-                        : BigDecimal.ZERO);
-        summary.setMonthlyPurchaseAmount(
-                workbenchMapper.monthlyPurchaseAmount(tenantId) != null
-                        ? workbenchMapper.monthlyPurchaseAmount(tenantId)
-                        : BigDecimal.ZERO);
+        BigDecimal todaySale = workbenchMapper.todaySaleAmount(tenantId);
+        summary.setTodaySaleAmount(todaySale != null ? todaySale : BigDecimal.ZERO);
+        BigDecimal monthlyPurchase = workbenchMapper.monthlyPurchaseAmount(tenantId);
+        summary.setMonthlyPurchaseAmount(monthlyPurchase != null ? monthlyPurchase : BigDecimal.ZERO);
         summary.setCustomerCount(workbenchMapper.customerCount(tenantId));
         summary.setSupplierCount(workbenchMapper.supplierCount(tenantId));
         summary.setPendingApprovalCount(workbenchMapper.pendingApprovalCount(tenantId, userId));

@@ -16,6 +16,7 @@ public class NexusPrincipal implements UserDetails {
     private final Long userId;
     private final String username;
     private final Long tenantId;
+    private final String jti;
     private final Long shopId;
     private final Long orgId;
     private final Integer dataScope;
@@ -23,12 +24,13 @@ public class NexusPrincipal implements UserDetails {
     private final List<Long> accessibleOrgIds;
     private final Collection<? extends GrantedAuthority> authorities;
 
-    public NexusPrincipal(Long userId, String username, Long tenantId, Long shopId, Long orgId, Integer dataScope,
+    public NexusPrincipal(Long userId, String username, Long tenantId, String jti, Long shopId, Long orgId, Integer dataScope,
                           List<Long> accessibleShopIds, List<Long> accessibleOrgIds,
                           Collection<? extends GrantedAuthority> authorities) {
         this.userId = userId;
         this.username = username;
         this.tenantId = tenantId;
+        this.jti = jti;
         this.shopId = shopId;
         this.orgId = orgId;
         this.dataScope = dataScope;
@@ -43,6 +45,10 @@ public class NexusPrincipal implements UserDetails {
 
     public Long getTenantId() {
         return tenantId;
+    }
+
+    public String getJti() {
+        return jti;
     }
 
     public Long getShopId() {

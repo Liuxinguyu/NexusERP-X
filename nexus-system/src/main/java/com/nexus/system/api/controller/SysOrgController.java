@@ -30,6 +30,7 @@ public class SysOrgController {
 
     private final SysOrgApplicationService sysOrgApplicationService;
 
+    @PreAuthorize("@ss.hasPermi('system:org:list')")
     @GetMapping("/tree")
     public Result<List<SysOrgTreeVO>> tree() {
         return Result.ok(sysOrgApplicationService.treeForCurrentTenant());
@@ -38,6 +39,7 @@ public class SysOrgController {
     /**
      * 组织树懒加载：只加载 {@code parentId} 下一层；{@code userCount} 为该节点整棵子树人数。
      */
+    @PreAuthorize("@ss.hasPermi('system:org:list')")
     @GetMapping("/tree-lazy")
     public Result<List<SysOrgTreeVO>> treeLazy(@RequestParam(required = false, defaultValue = "0") Long parentId) {
         return Result.ok(sysOrgApplicationService.treeLazyForCurrentTenant(parentId));
@@ -45,14 +47,14 @@ public class SysOrgController {
 
     @OpLog(module = "组织管理", type = "新增")
     @PostMapping
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@ss.hasPermi('system:org:add')")
     public Result<Long> create(@Valid @RequestBody SystemOrgDtos.OrgCreateRequest req) {
         return Result.ok(sysOrgApplicationService.createForCurrentTenant(req));
     }
 
     @OpLog(module = "组织管理", type = "修改")
     @PutMapping
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@ss.hasPermi('system:org:edit')")
     public Result<Void> update(@Valid @RequestBody SystemOrgDtos.OrgUpdateRequest req) {
         sysOrgApplicationService.updateForCurrentTenant(req);
         return Result.ok();
@@ -60,7 +62,7 @@ public class SysOrgController {
 
     @OpLog(module = "组织管理", type = "删除")
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("@ss.hasPermi('system:org:remove')")
     public Result<Void> delete(@PathVariable("id") Long id) {
         sysOrgApplicationService.deleteForCurrentTenant(id);
         return Result.ok();

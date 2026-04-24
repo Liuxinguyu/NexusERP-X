@@ -3,6 +3,7 @@ package com.nexus.wage.domain.model;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.annotation.Version;
 import com.nexus.common.domain.model.BaseTenantEntity;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -31,4 +32,7 @@ public class WageItemConfig extends BaseTenantEntity {
      * 一键生成月工资时按此类别汇总到工资单对应栏目。
      */
     private Integer itemKind;
+
+    @Version
+    private Integer version;
 }

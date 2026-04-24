@@ -41,6 +41,10 @@ public class SysShopApplicationService {
                 ? List.of()
                 : sysOrgApplicationService.listSelfAndDescendantOrgIds(tenantId, orgId);
 
+        if (orgId != null && orgIds.isEmpty()) {
+            return new Page<>(current, size);
+        }
+
         LambdaQueryWrapper<SysShop> wrapper = new LambdaQueryWrapper<SysShop>()
                 .eq(SysShop::getTenantId, tenantId)
                 .eq(SysShop::getDelFlag, 0)
@@ -71,7 +75,7 @@ public class SysShopApplicationService {
     public SysShop getById(Long id) {
         Long tenantId = requireTenantId();
         SysShop shop = shopMapper.selectById(id);
-        if (shop == null || !Objects.equals(shop.getTenantId(), tenantId) || shop.getDelFlag() == 1) {
+        if (shop == null || !Objects.equals(shop.getTenantId(), tenantId) || Objects.equals(shop.getDelFlag(), 1)) {
             throw new BusinessException(ResultCode.NOT_FOUND, "店铺不存在");
         }
         return shop;
@@ -147,10 +151,12 @@ public class SysShopApplicationService {
             throw new BusinessException(ResultCode.BAD_REQUEST, "该店铺已有用户挂载，无法删除");
         }
         
-        shop.setDelFlag(1);
+        // 逻辑删除前先污染唯一键，释放店铺唯一标识占用（当前为 shopName）
+        shop.setShopName(shop.getShopName() + "_del_" + shop.getId());
         shop.setUpdateTime(LocalDateTime.now());
         shop.setUpdateBy(com.nexus.common.context.GatewayUserContext.getUserId());
         shopMapper.updateById(shop);
+        shopMapper.deleteById(shop.getId());
     }
 
     private static Long requireTenantId() {

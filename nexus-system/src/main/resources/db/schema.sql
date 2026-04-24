@@ -300,7 +300,7 @@ INSERT INTO sys_org(id, tenant_id, parent_id, ancestors, org_code, org_name, org
 VALUES (2, 1, 1, '0,1,2', 'EAST', '华东分公司', 2, 1, 1);
 
 INSERT INTO sys_shop(id, tenant_id, org_id, shop_name, shop_type, status) VALUES (1, 1, 1, '总店', 1, 1);
-INSERT INTO sys_user(id, tenant_id, username, password_hash, real_name, status, main_shop_id, main_org_id) VALUES (1, 1, 'admin', '{noop}admin', '管理员', 1, 1, 2);
+INSERT INTO sys_user(id, tenant_id, username, password_hash, real_name, status, main_shop_id, main_org_id) VALUES (1, 1, 'admin', '{bcrypt}$2a$10$9v/U22kRCkbeBO6I7bY44uQTm1bdZp6xtg2DSk0ZDEPtz2da84MUq', '管理员', 1, 1, 2);
 INSERT INTO sys_post(id, tenant_id, post_code, post_name, status) VALUES (1, 1, 'DEPT_MANAGER', '部门经理', 1);
 INSERT INTO sys_post(id, tenant_id, post_code, post_name, status) VALUES (2, 1, 'GM', '总经理', 1);
 INSERT INTO sys_user_post(id, tenant_id, user_id, post_id) VALUES (1, 1, 1, 2);
@@ -323,7 +323,7 @@ INSERT INTO sys_role_menu(id, tenant_id, role_id, menu_id) VALUES (4, 1, 1, 4);
 -- 第二店铺挂在华东分公司下；分店员工 data_scope=2
 INSERT INTO sys_shop(id, tenant_id, org_id, shop_name, shop_type, status) VALUES (2, 1, 2, '分店', 1, 1);
 INSERT INTO sys_role(id, tenant_id, shop_id, role_code, role_name, data_scope) VALUES (2, 1, 2, 'STAFF', '分店员工', 2);
-INSERT INTO sys_user(id, tenant_id, username, password_hash, real_name, status, main_shop_id, main_org_id) VALUES (2, 1, 'staff', '{noop}staff', '店员', 1, 2, 2);
+INSERT INTO sys_user(id, tenant_id, username, password_hash, real_name, status, main_shop_id, main_org_id) VALUES (2, 1, 'staff', '{bcrypt}$2a$10$mYSTj4L4CJhAHEbshCFo6.64d41w1ChPE4G75uEcNAFfzPH0U1IsO', '店员', 1, 2, 2);
 INSERT INTO sys_user_shop_role(id, tenant_id, user_id, shop_id, role_id) VALUES (2, 1, 2, 2, 2);
 INSERT INTO sys_role_menu(id, tenant_id, role_id, menu_id) VALUES (5, 1, 2, 1);
 INSERT INTO sys_role_menu(id, tenant_id, role_id, menu_id) VALUES (6, 1, 2, 2);

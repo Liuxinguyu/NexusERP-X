@@ -3,12 +3,17 @@ import { contractApi } from '../../api/crm-crud'
 import { pickPageRecords } from '../../lib/http-helpers'
 import { useToast } from '../../components/Toast'
 import { useConfirm } from '../../components/ConfirmDialog'
+import { PermGate, usePermissions } from '../../context/PermissionsContext'
+import { CRM_PERMS } from '../../lib/business-perms'
+import { formatDateTime } from '../../lib/format'
+import { useStaleGuard } from '../../hooks/useStaleGuard'
 import Modal from '../../components/Modal'
 import type { ContractRow, ContractItem } from '../../types/crm-crud'
 
 export default function ContractManage() {
   const toast = useToast()
   const confirm = useConfirm()
+  const { can } = usePermissions()
   const [list, setList] = useState<ContractRow[]>([])
   const [total, setTotal] = useState(0)
   const [current, setCurrent] = useState(1)
@@ -22,19 +27,26 @@ export default function ContractManage() {
   const [submitting, setSubmitting] = useState(false)
   const [detailItems, setDetailItems] = useState<ContractItem[]>([])
   const [detailOpen, setDetailOpen] = useState(false)
+  const guard = useStaleGuard()
 
   const loadData = useCallback(async () => {
+    const id = guard.nextId()
     setLoading(true)
     try {
       const res = await contractApi.page({ current, size })
+      if (!guard.isCurrent(id)) return
       setList(pickPageRecords(res)); setTotal(res.total ?? 0)
     } catch (e) {
+      if (!guard.isCurrent(id)) return
       toast.error(e instanceof Error ? e.message : '加载合同列表失败')
       setList([])
       setTotal(0)
     }
-    finally { setLoading(false) }
-  }, [current])
+    finally {
+      if (!guard.isCurrent(id)) return
+      setLoading(false)
+    }
+  }, [current, guard, toast])
 
   useEffect(() => { void loadData() }, [loadData])
 
@@ -46,12 +58,18 @@ export default function ContractManage() {
 
   const handleSubmit = async () => {
     if (!contractName.trim()) return
+    const parsedAmount = amount ? Number(amount) : undefined
+    if (parsedAmount !== undefined && Number.isNaN(parsedAmount)) {
+      toast.error('金额格式不正确')
+      return
+    }
+    if (submitting) return
     setSubmitting(true)
     try {
-      const body: Partial<ContractRow> = { contractName, amount: amount ? Number(amount) : undefined, remark }
-      if (editId) await contractApi.update(editId, body)
+      const body: Partial<ContractRow> = { contractName, amount: parsedAmount, remark }
+      if (editId !== null) await contractApi.update(editId, body)
       else await contractApi.create(body)
-      setFormOpen(false); toast.success(editId ? '合同更新成功' : '合同创建成功'); void loadData()
+      setFormOpen(false); toast.success(editId !== null ? '合同更新成功' : '合同创建成功'); void loadData()
     } catch (e) { toast.error(e instanceof Error ? e.message : '操作失败') }
     finally { setSubmitting(false) }
   }
@@ -72,10 +90,16 @@ export default function ContractManage() {
     }
   }
 
+  if (!can(CRM_PERMS.contract.list)) {
+    return <div className="p-8 text-center text-slate-400 font-bold">暂无权限访问</div>
+  }
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex justify-end">
-        <button onClick={openCreate} className="px-8 py-3 bg-indigo-600 text-white rounded-2xl text-sm font-black shadow-xl shadow-indigo-200 hover:bg-indigo-500 transition-all">+ 新建合同</button>
+        <PermGate perms={[CRM_PERMS.contract.add]}>
+          <button onClick={openCreate} className="px-8 py-3 bg-indigo-600 text-white rounded-2xl text-sm font-black shadow-xl shadow-indigo-200 hover:bg-indigo-500 transition-all">+ 新建合同</button>
+        </PermGate>
       </div>
 
       <div className="bg-white rounded-[2.5rem] shadow-sm ring-1 ring-slate-100 overflow-hidden">
@@ -101,12 +125,16 @@ export default function ContractManage() {
                 <td className="px-8 py-6 text-slate-700">{row.contractName ?? '-'}</td>
                 <td className="px-8 py-6 text-slate-500">{row.customerName ?? '-'}</td>
                 <td className="px-8 py-6 text-right text-indigo-600 font-black">¥{(row.amount ?? 0).toLocaleString()}</td>
-                <td className="px-8 py-6 text-slate-400 text-xs">{row.signDate ?? '-'}</td>
+                <td className="px-8 py-6 text-slate-400 text-xs">{formatDateTime(row.signDate)}</td>
                 <td className="px-8 py-6 text-right">
                   <div className="flex gap-3 justify-end">
-                    <button onClick={() => openDetail(row.id!)} className="text-slate-600 text-xs font-black hover:underline">明细</button>
-                    <button onClick={() => openEdit(row)} className="text-indigo-600 text-xs font-black hover:underline">编辑</button>
-                    <button onClick={() => handleDelete(row.id!)} className="text-rose-500 text-xs font-black hover:underline">删除</button>
+                    <button onClick={() => void openDetail(row.id!)} className="text-slate-600 text-xs font-black hover:underline">明细</button>
+                    <PermGate perms={[CRM_PERMS.contract.edit]}>
+                      <button onClick={() => openEdit(row)} className="text-indigo-600 text-xs font-black hover:underline">编辑</button>
+                    </PermGate>
+                    <PermGate perms={[CRM_PERMS.contract.remove]}>
+                      <button onClick={() => void handleDelete(row.id!)} className="text-rose-500 text-xs font-black hover:underline">删除</button>
+                    </PermGate>
                   </div>
                 </td>
               </tr>
@@ -123,7 +151,7 @@ export default function ContractManage() {
         </div>
       </div>
 
-      <Modal open={formOpen} onClose={() => setFormOpen(false)} title={editId ? '编辑合同' : '新建合同'}>
+      <Modal open={formOpen} onClose={() => setFormOpen(false)} title={editId !== null ? '编辑合同' : '新建合同'}>
             <div className="space-y-1">
               <label className="text-[10px] font-black text-slate-400 uppercase">合同名称</label>
               <input value={contractName} onChange={e => setContractName(e.target.value)}
@@ -141,7 +169,7 @@ export default function ContractManage() {
             </div>
             <div className="flex gap-4">
               <button onClick={() => setFormOpen(false)} className="flex-1 py-3 bg-white rounded-2xl ring-1 ring-slate-200 font-black text-xs text-slate-400">取消</button>
-              <button onClick={handleSubmit} disabled={submitting}
+              <button onClick={() => void handleSubmit()} disabled={submitting}
                 className="flex-[2] py-3 bg-indigo-600 text-white rounded-2xl font-black text-xs hover:bg-indigo-500 transition-all disabled:opacity-60">
                 {submitting ? '提交中...' : '保存'}
               </button>
